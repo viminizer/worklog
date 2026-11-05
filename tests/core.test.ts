@@ -8,7 +8,7 @@ import { makeAgentRunner, validateResult } from '../src/server/agent.js';
 import { dayWindow } from '../src/server/config.js';
 import { discoverProjects, projectFromRemote } from '../src/server/discovery.js';
 import { AgentFailure, SourceFailure } from '../src/server/errors.js';
-import { retainPushContext } from '../src/server/evidence.js';
+import { retainEvidenceContext } from '../src/server/evidence.js';
 import { GitLab } from '../src/server/gitlab.js';
 import { acquireInstance } from '../src/server/instance.js';
 import { type Execute, execute } from '../src/server/process.js';
@@ -380,7 +380,7 @@ it('retains inspected commit context across repeated reads and collections of an
   };
   const inspected = { ...push, excerpt: 'Two scoped commit titles and authorship caveat.' };
   try {
-    expect(retainPushContext(push, inspected).excerpt).toBe(inspected.excerpt);
+    expect(retainEvidenceContext(push, inspected).excerpt).toBe(inspected.excerpt);
     for (const [index, item] of [inspected, push].entries()) {
       const id = `refresh:${index}`;
       store.enqueue(id, '2026-11-05');
@@ -393,7 +393,8 @@ it('retains inspected commit context across repeated reads and collections of an
     }
     expect(store.evidence(push.id)?.excerpt).toBe(inspected.excerpt);
     expect(
-      retainPushContext({ ...push, push: { ...push.push, to: 'c'.repeat(40) } }, inspected).excerpt,
+      retainEvidenceContext({ ...push, push: { ...push.push, to: 'c'.repeat(40) } }, inspected)
+        .excerpt,
     ).toBeUndefined();
   } finally {
     store.close();

@@ -87,11 +87,12 @@ async function status(): Promise<AppStatus> {
     const config = await loadConfig();
     return {
       configured: true,
+      remoteCollection: config.remoteCollection === true,
       workspaceId: dataScope(config),
       workspaces: store.workspaces(),
       configPath,
       workRoot: config.workRoot,
-      gitlabUrl: config.gitlabUrl,
+      gitlabUrl: config.gitlabUrl ?? null,
       timezone: config.timezone,
       setupError: null,
       automatic: config.automatic !== false,
@@ -103,6 +104,7 @@ async function status(): Promise<AppStatus> {
   } catch (error) {
     return {
       configured: false,
+      remoteCollection: false,
       workspaceId: store.scope(),
       workspaces: store.workspaces(),
       configPath,
@@ -178,6 +180,10 @@ const server = createServer(async (request, response) => {
       const config = await loadConfig().catch(() => {
         throw new Error('Save valid settings before checking GitLab.');
       });
+      if (!config.gitlabUrl || !config.token)
+        throw new Error(
+          'Optional GitLab connection is not configured. Local repository collection does not need it.',
+        );
       const userId = await new GitLab(config.gitlabUrl, config.token).identity();
       return json(response, 200, { userId });
     }

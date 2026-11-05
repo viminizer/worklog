@@ -7,12 +7,22 @@ import type { StoreApi } from './store.js';
 
 export function dataScope(config: AppConfig): string {
   return createHash('sha256')
-    .update(JSON.stringify([config.workRoot, config.gitlabUrl]))
+    .update(
+      JSON.stringify([config.workRoot, config.remoteCollection ? config.gitlabUrl : 'local-git']),
+    )
     .digest('hex');
 }
 export function syncSourceScope(store: StoreApi, config: AppConfig) {
   const scope = createHash('sha256')
-    .update(JSON.stringify([config.workRoot, config.gitlabUrl, config.timezone, config.token]))
+    .update(
+      JSON.stringify([
+        config.workRoot,
+        config.gitlabUrl,
+        config.timezone,
+        config.token,
+        config.remoteCollection,
+      ]),
+    )
     .digest('hex');
   const previous = store.state('source_scope');
   const workspace = dataScope(config);
@@ -20,7 +30,7 @@ export function syncSourceScope(store: StoreApi, config: AppConfig) {
     store.registerWorkspace({
       id: workspace,
       workRoot: config.workRoot,
-      gitlabUrl: config.gitlabUrl,
+      gitlabUrl: config.remoteCollection ? (config.gitlabUrl ?? null) : null,
       timezone: config.timezone,
       lastUsedAt: new Date().toISOString(),
     });

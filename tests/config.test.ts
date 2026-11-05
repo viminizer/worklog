@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { loadConfig, saveConfig, validateConfig } from '../src/server/config.js';
@@ -29,7 +29,10 @@ it('saves private settings and preserves the token on a blank same-instance upda
   await saveConfig({ ...input, token: '' }, path);
   expect((await loadConfig(path)).token).toBe('fixture-secret');
   await expect(
-    saveConfig({ ...input, token: '', gitlabUrl: 'https://other.example' }, path),
+    saveConfig(
+      { ...input, remoteCollection: true, token: '', gitlabUrl: 'https://other.example' },
+      path,
+    ),
   ).rejects.toThrow('token');
 });
 it('retains previous settings on validation failure and never includes input secrets in errors', async () => {
@@ -71,4 +74,19 @@ it('rejects credential storage inside a Git repository and rejects file-valued w
   await expect(saveConfig({ ...input, workRoot: file }, join(root, 'config.json'))).rejects.toThrow(
     'directory',
   );
+});
+
+it('accepts folder-only settings and expands the current user home without shell execution', async () => {
+  expect(validateConfig({ workRoot: '~', timezone: 'UTC' }).workRoot).toBe(homedir());
+  expect(validateConfig({ workRoot: '~/work', timezone: 'UTC' }).workRoot).toBe(
+    join(homedir(), 'work'),
+  );
+  expect(() => validateConfig({ workRoot: '~someone/work', timezone: 'UTC' })).toThrow(
+    'absolute path',
+  );
+  const root = await fixture();
+  const path = join(root, 'config.json');
+  await saveConfig({ workRoot: root, timezone: 'UTC', automatic: false }, path);
+  expect((await loadConfig(path)).token).toBeUndefined();
+  expect((await loadConfig(path)).gitlabUrl).toBeUndefined();
 });

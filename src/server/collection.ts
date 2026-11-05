@@ -1,8 +1,9 @@
 import { realpath } from 'node:fs/promises';
 import { Effect } from 'effect';
+import type { Project } from '../shared/domain.js';
 import { AgentRunner } from './agent.js';
 import { type AppConfig, configPath, dayWindow } from './config.js';
-import { discoverProjects } from './discovery.js';
+import { discoverProjects, discoverRepositories } from './discovery.js';
 import { message, SourceFailure, StorageFailure } from './errors.js';
 import { GitLab } from './gitlab.js';
 import { ingestSessions } from './sessions.js';
@@ -39,13 +40,29 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
           ]
             .join(' · ')
             .slice(0, 2000) || undefined;
-    const projects = yield* Effect.tryPromise({
-      try: () => discoverProjects(config.workRoot, config.gitlabUrl),
-      catch: () =>
-        new SourceFailure({
-          message: 'Cannot scan the work root. Check that the folder exists and is readable.',
-        }),
+    const repositories = yield* Effect.tryPromise({
+      try: () => discoverRepositories(config.workRoot),
+      catch: (error) => new SourceFailure({ message: message(error) }),
     });
+    let remoteWarning: string | undefined;
+    let projects: Project[] = [];
+    if (config.remoteCollection && config.gitlabUrl) {
+      const discovery = yield* Effect.tryPromise({
+        try: () => discoverProjects(config.workRoot, config.gitlabUrl as string),
+        catch: () =>
+          new SourceFailure({
+            message:
+              'Cannot discover optional GitLab projects. Check repository remotes, or disable optional GitLab collection.',
+          }),
+      }).pipe(
+        Effect.map((projects) => ({ projects, warning: undefined as string | undefined })),
+        Effect.catchTag('SourceFailure', (error) =>
+          Effect.succeed({ projects: [] as Project[], warning: error.message }),
+        ),
+      );
+      projects = discovery.projects;
+      remoteWarning = discovery.warning;
+    }
     const sessionEvidence = store.sessionEvidence(
       day,
       yield* Effect.tryPromise({
@@ -53,26 +70,38 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
         catch: () => new SourceFailure({ message: 'Cannot resolve work root.' }),
       }),
     );
-    if (!projects.length && !sessionEvidence.length)
+    if (!repositories.length && !sessionEvidence.length)
       return yield* Effect.fail(
         new SourceFailure({
           message:
-            warning ??
-            'No GitLab repositories or eligible local sessions found under the work root.',
+            warning ?? 'No Git repositories or eligible local sessions found under the work root.',
         }),
       );
-    const userId = projects.length
-      ? yield* Effect.tryPromise({
-          try: () => new GitLab(config.gitlabUrl, config.token).identity(),
-          catch: (error) =>
-            error instanceof SourceFailure
-              ? error
-              : new SourceFailure({ message: 'Cannot verify GitLab access.' }),
-        })
-      : undefined;
+    let userId: number | undefined;
+    if (projects.length) {
+      const access = yield* Effect.tryPromise({
+        try: () => new GitLab(config.gitlabUrl as string, config.token as string).identity(),
+        catch: (error) =>
+          error instanceof SourceFailure
+            ? error
+            : new SourceFailure({
+                message:
+                  'Cannot verify optional GitLab access. Check the network and saved token, or disable remote collection.',
+              }),
+      }).pipe(
+        Effect.map((id) => ({ id, warning: undefined as string | undefined })),
+        Effect.catchTag('SourceFailure', (error) =>
+          Effect.succeed({ id: undefined, warning: error.message }),
+        ),
+      );
+      userId = access.id;
+      remoteWarning = access.warning;
+      if (remoteWarning) projects = [];
+    }
     const window = dayWindow(day, config.timezone);
     const result = yield* agent.collect({
       task: {
+        repositories,
         projects: projects.map((project) => project.path),
         ...window,
         sessionEvidence,
@@ -82,7 +111,15 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
       onAttempt: (name, fallback) => store.attempt(id, name, fallback),
     });
     yield* Effect.try({
-      try: () => store.commit(id, day, { ...result, warning }),
+      try: () =>
+        store.commit(id, day, {
+          ...result,
+          warning:
+            [warning, remoteWarning, ...(result.audit.warnings ?? [])]
+              .filter(Boolean)
+              .join(' · ')
+              .slice(0, 4000) || undefined,
+        }),
       catch: (error) => new StorageFailure({ message: message(error) }),
     });
   });

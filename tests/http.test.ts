@@ -154,6 +154,16 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
       body: JSON.stringify({ kind: 'daily', fromDay: '2026-11-02', toDay: '2026-11-02' }),
     });
     expect(empty.status).toBe(400);
+    const localOnly = await fetch(url + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workRoot: work, timezone: 'UTC', automatic: false }),
+    });
+    expect(localOnly.status).toBe(200);
+    expect((await localOnly.json()).remoteCollection).toBe(false);
+    const localSettings = JSON.parse(await readFile(join(directory, 'config.json'), 'utf8'));
+    expect(localSettings.gitlabUrl).toBeUndefined();
+    expect(localSettings.token).toBeUndefined();
   } finally {
     child.kill('SIGTERM');
     await once(child, 'exit');

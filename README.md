@@ -1,14 +1,12 @@
 # Worklog
 
-A local work journal that collects your GitLab activity and turns it into
-source-linked accomplishments. Codex performs collection through read-only tools;
+A local work journal that investigates repositories beneath your work folder and turns local commits and AI sessions into source-linked accomplishments. Codex performs collection through read-only tools;
 Claude Code takes over automatically if Codex fails.
 
 ## Requirements
 
 - macOS or Linux, Node.js 22.12 or newer, npm, and Git.
 - Codex and Claude Code installed on PATH and authenticated independently.
-- Access to your company's GitLab and a personal token with `read_api` access.
 - Local project checkouts beneath one work folder.
 
 The backend uses TypeScript and Effect 4, SQLite stores records locally, and React
@@ -22,18 +20,21 @@ npm run build
 npm start
 ```
 
-Open <http://127.0.0.1:4318>. Complete **Connect your work** in the dashboard: select a work folder, GitLab URL,
-read-only token, timezone, and history start date. Save, then use **Check saved GitLab
-connection** while on the company network. Existing tokens stay saved when the
-token field is left blank. Settings cannot change during an active background task.
+Open <http://127.0.0.1:4318>. Complete **Connect your work** with a work folder,
+timezone, and history start date. `~` and `~/work` expand to your home directory.
+No GitHub or GitLab credentials are required. Settings cannot change during an
+active background task.
+
+The default collector reads local repository history without fetching or making
+host API calls. GitLab API collection is off unless explicitly enabled under
+**Optional GitLab integration**; that option requires its URL and a saved read-only
+token. Existing saved tokens stay saved on a blank same-instance update.
 
 Stop the application before editing configuration manually. For manual configuration, create `~/.local/share/worklog/config.json` outside this repository:
 
 ```json
 {
   "workRoot": "/absolute/path/to/work",
-  "gitlabUrl": "https://gitlab.example.com",
-  "token": "your-read-only-token",
   "timezone": "Asia/Seoul",
   "automatic": true,
   "collectionStartDate": "2026-11-01"
@@ -47,12 +48,12 @@ chmod 700 ~/.local/share/worklog
 chmod 600 ~/.local/share/worklog/config.json
 ```
 
-Select a date and click **Collect activity**. Worklog discovers GitLab repositories
-under your work folder, asks the agent to collect each project's activity, validates
+Select a date and click **Collect activity**. Worklog discovers Git repositories
+under your work folder, asks the agent to inspect each repository, validates
 source coverage and evidence references, and saves the daily record atomically.
 Repeated collection updates the record without duplicating evidence.
 
-The token's authenticated GitLab user determines whose activity is collected.
+For optional GitLab API collection, the token's authenticated GitLab user determines whose remote activity is collected.
 GitLab URL must use HTTPS; SSH and HTTPS Git remotes are supported, including nested
 namespaces. Multiple checkouts of the same project count once. Worklog does not
 write to GitLab.
@@ -64,6 +65,22 @@ GitLab interaction. The agent can inspect pushed-commit ranges through the
 showing up to 25 titles with explicit omissions. When the previous ref is missing,
 only the tip commit is available. Pushing a coworker's commits does not establish
 authorship. Inspected commit context is retained with the source evidence. Daily and weekly reports use the stored record and can be generated even when GitLab is currently unreachable.
+
+## Local repository collection
+
+The agent reads commits across refs already present in each checkout and can inspect
+commit summaries and changed-file statistics. No remote is required. It never runs
+fetch, pull, push, or writes to repositories. Commits are attributed by each
+repository's effective `git config user.email` and grouped by commit time in your
+reporting timezone. Configure the correct email locally in repositories that use a
+different work identity. A local commit does not prove deployment or passing tests.
+
+Only committed Git history is collected; ongoing uncommitted work can still be
+represented by eligible AI sessions. Empty repositories and days without commits
+are valid. Missing author configuration, unreadable repositories, and collection
+limits appear in **Collection status** with manual repair guidance. Fix the setup
+on this computer, then collect that date again. Healthy sources remain available
+and partial collections do not mark the date complete.
 
 ## Agent behavior
 

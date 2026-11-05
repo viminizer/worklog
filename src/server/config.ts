@@ -7,8 +7,9 @@ import { DateTime } from 'luxon';
 
 const ConfigSchema = Schema.Struct({
   workRoot: Schema.String,
-  gitlabUrl: Schema.String,
-  token: Schema.String,
+  gitlabUrl: Schema.optionalKey(Schema.String),
+  token: Schema.optionalKey(Schema.String),
+  remoteCollection: Schema.optionalKey(Schema.Boolean),
   timezone: Schema.String,
   automatic: Schema.optionalKey(Schema.Boolean),
   collectionStartDate: Schema.optionalKey(Schema.String),
@@ -44,26 +45,41 @@ export function validateConfig(input: unknown): AppConfig {
   try {
     config = Schema.decodeUnknownSync(ConfigSchema)(input);
   } catch {
-    throw new Error('Settings require a work folder, GitLab URL, token, and timezone.');
+    throw new Error('Settings require a work folder and timezone.');
   }
-  let url: URL;
-  try {
-    url = new URL(config.gitlabUrl);
-  } catch {
-    throw new Error('Enter a valid HTTPS GitLab URL.');
+  let gitlabUrl: string | undefined;
+  if (config.gitlabUrl?.trim()) {
+    let url: URL;
+    try {
+      url = new URL(config.gitlabUrl);
+    } catch {
+      throw new Error('Enter a valid HTTPS GitLab URL.');
+    }
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
+      throw new Error('GitLab URL must use HTTPS without credentials or query parameters.');
+    gitlabUrl = url.href.replace(/\/$/, '');
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
-    throw new Error('GitLab URL must use HTTPS without credentials or query parameters.');
-  if (!config.token.trim()) throw new Error('A read-only GitLab token is required.');
+  const token = config.token?.trim() || undefined;
+  if (config.remoteCollection && (!gitlabUrl || !token))
+    throw new Error(
+      'Optional GitLab collection requires an instance URL and a read-only token. Leave it off to collect local repositories.',
+    );
   if (!DateTime.now().setZone(config.timezone).isValid)
     throw new Error('Enter a valid IANA timezone, such as Asia/Seoul.');
-  if (!config.workRoot.startsWith(sep)) throw new Error('Work folder must be an absolute path.');
+  const workRoot =
+    config.workRoot === '~'
+      ? homedir()
+      : config.workRoot.startsWith('~/')
+        ? join(homedir(), config.workRoot.slice(2))
+        : config.workRoot;
+  if (!workRoot.startsWith(sep))
+    throw new Error('Work folder must be an absolute path or start with ~/.');
   if (config.collectionStartDate) {
     dayWindow(config.collectionStartDate, config.timezone);
     if (config.collectionStartDate > DateTime.now().setZone(config.timezone).toFormat('yyyy-MM-dd'))
       throw new Error('History start cannot be in the future.');
   }
-  return { ...config, token: config.token.trim(), gitlabUrl: url.href.replace(/\/$/, '') };
+  return { ...config, workRoot, token, gitlabUrl };
 }
 export async function loadConfig(path = configPath): Promise<AppConfig> {
   let input: unknown;
@@ -80,7 +96,10 @@ export async function saveConfig(input: unknown, path = configPath): Promise<App
   const old = await loadConfig(path).catch(() => undefined);
   const token =
     old && values.token === '' && values.gitlabUrl === old.gitlabUrl ? old.token : values.token;
-  const config = validateConfig({ ...values, token });
+  const candidate = { ...values };
+  if (token === undefined) delete candidate.token;
+  else candidate.token = token;
+  const config = validateConfig(candidate);
   const workRoot = await realpath(config.workRoot).catch(() => {
     throw new Error('Work folder does not exist or is not readable.');
   });

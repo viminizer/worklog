@@ -18,15 +18,20 @@ function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: ()
       <button type="button" className="dialog-close" onClick={() => dialog.current?.close()}>
         Close
       </button>
-      <p className="eyebrow">{evidence.session?.provider} SESSION EVIDENCE</p>
+      <p className="eyebrow">
+        {evidence.localGit ? 'LOCAL GIT COMMIT' : `${evidence.session?.provider} SESSION EVIDENCE`}
+      </p>
       <h2 id="evidence-title">{evidence.project}</h2>
       <p className="muted">
         {evidence.time} · {evidence.action}
       </p>
       <pre>{evidence.excerpt ?? evidence.title}</pre>
-      <p className="muted">
-        Session {evidence.session?.id} · Entry {evidence.session?.entry}
-      </p>
+      {evidence.session && (
+        <p className="muted">
+          Session {evidence.session.id} · Entry {evidence.session.entry}
+        </p>
+      )}
+      {evidence.localGit && <p className="muted">Checkout: {evidence.localGit.checkout}</p>}
     </dialog>
   );
 }
@@ -363,7 +368,12 @@ function App() {
                         {DateTime.fromISO(job.createdAt).toLocaleString(DateTime.TIME_SIMPLE)}
                       </time>
                       {job.fallback && <p>Switched to Claude Code: {job.fallback}</p>}
-                      {job.error && <p className="job-error">{job.error}</p>}
+                      {job.error && (
+                        <div role="alert" className="job-error">
+                          <p>{job.error}</p>
+                          <p>Fix the issue on this computer, then collect this date again.</p>
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (
@@ -383,7 +393,7 @@ function App() {
                   ))
                 ) : (
                   <p className="muted">
-                    Original activity will appear here, with links to GitLab or local session
+                    Original activity will appear here, with local commit details and AI session
                     excerpts.
                   </p>
                 )}

@@ -77,6 +77,7 @@ export interface Evidence {
   title: string;
   url: string;
   excerpt?: string;
+  localGit?: { checkout: string; commit: string; authorEmail: string; inspected?: boolean };
   push?: { from: string | null; to: string; count: number | null; ref: string | null };
   session?: {
     provider: 'codex' | 'claude';
@@ -92,6 +93,8 @@ export interface Audit {
   covered: string[];
   evidence: Evidence[];
   sourceError?: string;
+  failedSources?: string[];
+  warnings?: string[];
 }
 export interface Job {
   id: string;
@@ -115,6 +118,7 @@ export interface DailyView {
 }
 export interface AppStatus {
   configured: boolean;
+  remoteCollection: boolean;
   workspaceId: string;
   workspaces: Workspace[];
   configPath: string;

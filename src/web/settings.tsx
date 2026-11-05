@@ -15,6 +15,7 @@ export function Settings({
   const [workRoot, setWorkRoot] = useState(status.workRoot ?? '');
   const [gitlabUrl, setGitlabUrl] = useState(status.gitlabUrl ?? '');
   const [token, setToken] = useState('');
+  const [remoteCollection, setRemoteCollection] = useState(status.remoteCollection);
   const [timezone, setTimezone] = useState(
     status.configured ? status.timezone : Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
@@ -35,6 +36,7 @@ export function Settings({
           workRoot,
           gitlabUrl,
           token,
+          remoteCollection,
           timezone,
           automatic,
           collectionStartDate: startDate,
@@ -82,33 +84,8 @@ export function Settings({
               required
               value={workRoot}
               onChange={(e) => setWorkRoot(e.target.value)}
-              placeholder="/Users/you/work"
+              placeholder="~/work"
               autoComplete="off"
-            />
-          </label>
-          <label>
-            GitLab instance
-            <input
-              required
-              type="url"
-              value={gitlabUrl}
-              onChange={(e) => setGitlabUrl(e.target.value)}
-              placeholder="https://gitlab.example.com"
-            />
-          </label>
-          <label>
-            Read-only GitLab token
-            <input
-              required={!status.configured}
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder={
-                status.configured
-                  ? 'Leave blank to keep saved token'
-                  : 'Personal access token with read_api'
-              }
-              autoComplete="new-password"
             />
           </label>
           <label>
@@ -139,6 +116,50 @@ export function Settings({
             Collect automatically every 30 minutes
           </label>
         </div>
+        <details className="optional-integration">
+          <summary>Optional GitLab integration</summary>
+          <p className="muted">
+            Local repository and AI session collection works without credentials. Enable this only
+            to also query GitLab.
+          </p>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={remoteCollection}
+              onChange={(event) => setRemoteCollection(event.target.checked)}
+            />
+            Include remote GitLab activity
+          </label>
+          {remoteCollection && (
+            <div className="settings-grid">
+              {' '}
+              <label>
+                GitLab instance
+                <input
+                  required={remoteCollection}
+                  type="url"
+                  value={gitlabUrl}
+                  onChange={(e) => setGitlabUrl(e.target.value)}
+                  placeholder="https://gitlab.example.com"
+                />
+              </label>
+              <label>
+                Read-only GitLab token
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder={
+                    status.configured
+                      ? 'Leave blank to keep saved token'
+                      : 'Personal access token with read_api'
+                  }
+                  autoComplete="new-password"
+                />
+              </label>
+            </div>
+          )}
+        </details>
         <p className="muted">
           Settings and records stay on this computer. Agent tasks process selected activity through
           your configured providers.
@@ -158,7 +179,7 @@ export function Settings({
           <button disabled={busy || Boolean(status.activeJob)} type="submit">
             {busy ? 'Working…' : 'Save workspace'}
           </button>
-          {status.configured && (
+          {status.configured && status.remoteCollection && (
             <button className="quiet" type="button" disabled={busy} onClick={check}>
               Check saved GitLab connection
             </button>

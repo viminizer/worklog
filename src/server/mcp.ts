@@ -4,14 +4,16 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import packageInfo from '../../package.json' with { type: 'json' };
-import type { Audit, Evidence, ReportMaterial } from '../shared/domain.js';
+import type { Audit, Evidence, Project, ReportMaterial } from '../shared/domain.js';
 import { loadConfig } from './config.js';
 import { message } from './errors.js';
-import { retainPushContext } from './evidence.js';
+import { retainEvidenceContext } from './evidence.js';
 import { GitLab } from './gitlab.js';
+import { repositoryActivity, repositoryDetail } from './local-git.js';
 
 export interface CollectionTask {
   projects: string[];
+  repositories?: Project[];
   start: string;
   end: string;
   sessionEvidence?: Evidence[];
@@ -23,7 +25,10 @@ if (!taskPath || !auditPath || !configFile)
   throw new Error('Missing collection task configuration.');
 const config = await loadConfig(configFile);
 const task: CollectionTask = JSON.parse(await readFile(taskPath, 'utf8'));
-const gitlab = new GitLab(config.gitlabUrl, config.token);
+const gitlab =
+  config.remoteCollection && config.gitlabUrl && config.token
+    ? new GitLab(config.gitlabUrl, config.token)
+    : undefined;
 const audit: Audit = { covered: [], evidence: [] };
 let userId: number | undefined = task.userId;
 const save = () => writeFileSync(auditPath, JSON.stringify(audit), { mode: 0o600 });
@@ -37,7 +42,7 @@ server.registerTool(
     inputSchema: { project: z.string() },
   },
   async ({ project }) => {
-    if (!task.projects.includes(project))
+    if (!gitlab || !task.projects.includes(project))
       return { isError: true, content: [{ type: 'text', text: 'Project is outside this task.' }] };
     try {
       userId ??= await gitlab.identity();
@@ -45,16 +50,54 @@ server.registerTool(
       audit.covered = [...new Set([...audit.covered, project])];
       const all = new Map(audit.evidence.map((record) => [record.id, record]));
       for (const record of records)
-        all.set(record.id, retainPushContext(record, all.get(record.id)));
+        all.set(record.id, retainEvidenceContext(record, all.get(record.id)));
       audit.evidence = [...all.values()];
       await save();
       return {
         content: [{ type: 'text', text: JSON.stringify(records.map((item) => all.get(item.id))) }],
       };
     } catch (error) {
-      audit.sourceError = message(error);
+      const warning = message(error);
+      audit.warnings = [...new Set([...(audit.warnings ?? []), warning])];
+      audit.failedSources = [...new Set([...(audit.failedSources ?? []), project])];
       await save();
-      return { isError: true, content: [{ type: 'text', text: audit.sourceError }] };
+      return { isError: true, content: [{ type: 'text', text: warning }] };
+    }
+  },
+);
+server.registerTool(
+  'collect_repository_activity',
+  {
+    description:
+      'Read local commits authored by this repository’s configured Git user.email in the fixed task window. No network, fetch, or credentials. Call for every scoped repository. Empty results are valid; failures must be reported.',
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    inputSchema: { repository: z.string() },
+  },
+  async ({ repository }) => {
+    const item = task.repositories?.find((item) => item.path === repository);
+    if (!item)
+      return {
+        isError: true,
+        content: [{ type: 'text', text: 'Repository is outside this task.' }],
+      };
+    const source = `repository:${repository}`;
+    try {
+      const records = await repositoryActivity(config.workRoot, item, task.start, task.end);
+      const all = new Map(audit.evidence.map((item) => [item.id, item]));
+      for (const item of records) all.set(item.id, retainEvidenceContext(item, all.get(item.id)));
+      audit.evidence = [...all.values()];
+      audit.covered = [...new Set([...audit.covered, source])];
+      audit.failedSources = audit.failedSources?.filter((item) => item !== source);
+      save();
+      return {
+        content: [{ type: 'text', text: JSON.stringify(records.map((item) => all.get(item.id))) }],
+      };
+    } catch (error) {
+      audit.failedSources = [...new Set([...(audit.failedSources ?? []), source])];
+      const warning = message(error);
+      audit.warnings = [...new Set([...(audit.warnings ?? []), warning])];
+      save();
+      return { isError: true, content: [{ type: 'text', text: warning }] };
     }
   },
 );
@@ -90,7 +133,22 @@ server.registerTool(
   },
   async ({ evidenceId }) => {
     const item = audit.evidence.find((record) => record.id === evidenceId);
+    if (item?.localGit) {
+      try {
+        const detail = await repositoryDetail(config.workRoot, item);
+        item.excerpt = detail;
+        item.localGit.inspected = true;
+        save();
+        return { content: [{ type: 'text', text: detail }] };
+      } catch (error) {
+        const warning = message(error);
+        audit.warnings = [...new Set([...(audit.warnings ?? []), warning])];
+        save();
+        return { isError: true, content: [{ type: 'text', text: warning }] };
+      }
+    }
     if (
+      !gitlab ||
       !item ||
       (!item.push &&
         (!item.targetIid || !['MergeRequest', 'Issue'].includes(item.targetType ?? '')))
@@ -116,9 +174,10 @@ server.registerTool(
       }
       return { content: [{ type: 'text', text: JSON.stringify(detail) }] };
     } catch (error) {
-      audit.sourceError = message(error);
+      const warning = message(error);
+      audit.warnings = [...new Set([...(audit.warnings ?? []), warning])];
       await save();
-      return { isError: true, content: [{ type: 'text', text: audit.sourceError }] };
+      return { isError: true, content: [{ type: 'text', text: warning }] };
     }
   },
 );

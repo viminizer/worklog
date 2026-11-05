@@ -53,6 +53,7 @@ it('exposes only read-only scoped collection tools over the real stdio transport
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
       'collect_project_activity',
+      'collect_repository_activity',
       'collect_session_activity',
       'read_activity_detail',
       'read_report_evidence',

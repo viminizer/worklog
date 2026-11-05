@@ -9,7 +9,13 @@ export function EvidenceReference({
   full?: boolean;
 }) {
   const provider =
-    item.session?.provider === 'codex' ? 'Codex' : item.session ? 'Claude Code' : 'GitLab';
+    item.session?.provider === 'codex'
+      ? 'Codex'
+      : item.session
+        ? 'Claude Code'
+        : item.localGit
+          ? 'Local Git'
+          : 'GitLab';
   const label = `${item.project} · ${provider} ↗`;
   const children = full ? (
     <>
@@ -20,12 +26,12 @@ export function EvidenceReference({
     label
   );
   const className = full ? 'evidence' : 'source-link';
-  return item.session ? (
+  return item.session || item.localGit ? (
     <button
       type="button"
       className={className}
       title={item.title}
-      aria-label={`Open ${provider} session evidence: ${item.title.slice(0, 160)}`}
+      aria-label={`Open ${provider} evidence: ${item.title.slice(0, 160)}`}
       onClick={() => onOpen(item)}
     >
       {children}
