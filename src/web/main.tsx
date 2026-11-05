@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AppStatus, DailyView } from '../shared/domain.js';
+import type { AppStatus, DailyView, Evidence } from '../shared/domain.js';
 import './style.css';
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -10,7 +10,30 @@ async function api<T>(path: string, options?: RequestInit): Promise<T> {
   if (!response.ok) throw new Error(value.error ?? 'Request failed.');
   return value;
 }
+function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog ref={dialog} onClose={onClose} aria-labelledby="evidence-title">
+      <button type="button" className="dialog-close" onClick={() => dialog.current?.close()}>
+        Close
+      </button>
+      <p className="eyebrow">{evidence.session?.provider} SESSION EVIDENCE</p>
+      <h2 id="evidence-title">{evidence.project}</h2>
+      <p className="muted">
+        {evidence.time} · {evidence.action}
+      </p>
+      <pre>{evidence.excerpt ?? evidence.title}</pre>
+      <p className="muted">
+        Session {evidence.session?.id} · Entry {evidence.session?.entry}
+      </p>
+    </dialog>
+  );
+}
 function App() {
+  const [selectedEvidence, setSelectedEvidence] = useState<Evidence>();
   const [status, setStatus] = useState<AppStatus>();
   const [day, setDay] = useState(DateTime.local().toFormat('yyyy-MM-dd'));
   const [view, setView] = useState<DailyView>();
@@ -149,8 +172,8 @@ function App() {
                 <h3>Room for today's work.</h3>
                 <p>
                   {status?.configured
-                    ? 'Collect activity to turn your GitLab work into a record you can revisit.'
-                    : 'Connect GitLab to start building your daily record.'}
+                    ? 'Collect activity to turn your work into a record you can revisit.'
+                    : 'Connect your sources to start building your daily record.'}
                 </p>
               </div>
             )}
@@ -162,11 +185,21 @@ function App() {
                   {item.evidenceIds.map((id) => {
                     const evidence = view.supportingEvidence.find((record) => record.id === id);
                     return (
-                      evidence && (
+                      evidence &&
+                      (evidence.session ? (
+                        <button
+                          type="button"
+                          className="source-link"
+                          key={id}
+                          onClick={() => setSelectedEvidence(evidence)}
+                        >
+                          {evidence.project} · {evidence.session.provider} ↗
+                        </button>
+                      ) : (
                         <a key={id} href={evidence.url} target="_blank" rel="noreferrer">
                           {evidence.project} ↗
                         </a>
-                      )
+                      ))
                     );
                   })}
                 </div>
@@ -216,21 +249,36 @@ function App() {
             <section className="side-section">
               <p className="eyebrow">SOURCE EVIDENCE</p>
               {view?.evidence.length ? (
-                view.evidence.map((item) => (
-                  <a
-                    className="evidence"
-                    key={item.id}
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <span>{item.project} ↗</span>
-                    <p>{item.title}</p>
-                  </a>
-                ))
+                view.evidence.map((item) =>
+                  item.session ? (
+                    <button
+                      type="button"
+                      className="evidence"
+                      key={item.id}
+                      onClick={() => setSelectedEvidence(item)}
+                    >
+                      <span>
+                        {item.session.provider} · {item.project} ↗
+                      </span>
+                      <p>{item.title}</p>
+                    </button>
+                  ) : (
+                    <a
+                      className="evidence"
+                      key={item.id}
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <span>{item.project} ↗</span>
+                      <p>{item.title}</p>
+                    </a>
+                  ),
+                )
               ) : (
                 <p className="muted">
-                  Original activity will appear here, with links back to GitLab.
+                  Original activity will appear here, with links to GitLab or local session
+                  excerpts.
                 </p>
               )}
             </section>
@@ -242,6 +290,12 @@ function App() {
           </aside>
         </div>
       </main>
+      {selectedEvidence && (
+        <EvidenceDialog
+          evidence={selectedEvidence}
+          onClose={() => setSelectedEvidence(undefined)}
+        />
+      )}
       <footer>
         WORKLOG <span>A record that grows with your work.</span>
       </footer>

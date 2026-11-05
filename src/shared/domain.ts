@@ -21,6 +21,10 @@ export const outputJsonSchema = z.toJSONSchema(
     ),
   }),
 );
+// Claude's schema validator does not load draft2020-12 meta-schemas. The
+// structural contract uses the shared subset and needs no $schema declaration.
+delete outputJsonSchema.$schema;
+
 export interface Project {
   path: string;
   checkout: string;
@@ -32,6 +36,14 @@ export interface Evidence {
   action: string;
   title: string;
   url: string;
+  excerpt?: string;
+  session?: {
+    provider: 'codex' | 'claude';
+    id: string;
+    file: string;
+    entry: string;
+    workRoot: string;
+  };
   targetType: string | null;
   targetIid: number | null;
 }

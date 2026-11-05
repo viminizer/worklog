@@ -390,3 +390,53 @@ footer > span {
   margin-top: 24px;
   font-size: 12px;
 }
+
+.source-link {
+  background: none;
+  color: var(--muted);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 400;
+}
+.source-link:hover {
+  background: none;
+  color: var(--ink);
+}
+button.evidence {
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  border-radius: 0;
+  width: 100%;
+  font-weight: 400;
+}
+button.evidence:hover {
+  background: #eaece1;
+}
+dialog {
+  width: min(760px, calc(100vw - 36px));
+  max-height: 85vh;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 30px;
+  color: var(--ink);
+  background: var(--paper);
+}
+dialog::backdrop {
+  background: #142b2266;
+}
+dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px / 1.8 "Avenir Next",
+    sans-serif;
+}
+.dialog-close {
+  float: right;
+  padding: 8px 14px;
+  font-size: 12px;
+}

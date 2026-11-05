@@ -89,6 +89,12 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && url.pathname === '/api/status')
       return json(response, 200, await status());
+    if (request.method === 'GET' && url.pathname === '/api/evidence') {
+      const item = store.evidence(url.searchParams.get('id') ?? '');
+      return item
+        ? json(response, 200, item)
+        : json(response, 404, { error: 'Evidence not found.' });
+    }
     if (request.method === 'GET' && url.pathname === '/api/day') {
       const current = await status();
       const day =

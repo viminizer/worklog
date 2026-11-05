@@ -53,10 +53,9 @@ GitLab URL must use HTTPS; SSH and HTTPS Git remotes are supported, including ne
 namespaces. Multiple checkouts of the same project count once. Worklog does not
 write to GitLab.
 
-Collection currently uses GitLab's Events API. It includes supported push, merge
+GitLab collection uses its Events API. It includes supported push, merge
 request, issue, and discussion events; it is not a complete audit trail of every
-GitLab interaction. Local AI session ingestion, automatic schedules, report editing,
-and weekly reports are subsequent implementation phases.
+GitLab interaction. Automatic schedules, report editing, and weekly reports are subsequent implementation phases.
 
 ## Agent behavior
 
@@ -97,3 +96,32 @@ the application data directory and must point outside the code repository. `PORT
 overrides the backend port; update the Vite proxy if developing on another port.
 Back up the data directory with the application stopped. There is no device sync or
 work-data transfer.
+
+## Local AI sessions
+
+Collection also incrementally reads Codex JSONL history (`$CODEX_HOME/sessions`,
+otherwise `~/.codex/sessions`) and Claude Code history (`$CLAUDE_CONFIG_DIR/projects`,
+otherwise `~/.claude/projects`). Sessions must begin under the configured work root;
+messages after a recorded move outside that root are excluded. Symlinks are resolved.
+Claude sidechain messages are excluded to avoid duplicating parent conversations.
+
+Only user and assistant text is selected; system instructions, tool outputs, and
+reasoning traces are excluded. Long messages retain the first and last 6,000 characters with an explicit omission marker.
+Click a local session source to inspect its stored excerpt in the dashboard.
+An AI session is evidence of discussion or attempted work, not proof of completion.
+
+Offsets and selected evidence are committed together per session file. Appended
+messages are read next time; incomplete trailing JSON is retained until complete.
+Replacing or truncating files resets reading without discarding existing evidence.
+Worklog's automated agents use ephemeral/nonpersistent sessions in temporary folders
+outside the work root, preventing self-collection.
+
+Each ingestion pass reads at most 64 MB of eligible new session data. If more remains,
+the job is marked partial and asks you to collect again; already ingested data and progress are preserved.
+A malformed completed entry or entry over 8 MB produces a visible source warning; GitLab collection can still proceed.
+Session ingestion commits independently before GitLab calls, so a later GitLab failure
+does not discard new local evidence.
+
+For nonstandard session storage, `WORKLOG_CODEX_SESSIONS_DIR` and
+`WORKLOG_CLAUDE_SESSIONS_DIR` override the reader directories independently of the
+CLI authentication homes.

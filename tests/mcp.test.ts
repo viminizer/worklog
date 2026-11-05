@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -22,6 +22,16 @@ it('exposes only read-only scoped collection tools over the real stdio transport
     task,
     JSON.stringify({
       projects: ['team/app'],
+      sessionEvidence: Array.from({ length: 11 }, (_, index) => ({
+        id: `session:${index}`,
+        project: 'app',
+        time: '2026-11-05T00:00:00Z',
+        action: 'user',
+        title: 'Work',
+        url: '/api/evidence',
+        targetType: 'codex',
+        targetIid: null,
+      })),
       start: '2026-11-05T00:00:00Z',
       end: '2026-11-06T00:00:00Z',
     }),
@@ -43,6 +53,7 @@ it('exposes only read-only scoped collection tools over the real stdio transport
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
       'collect_project_activity',
+      'collect_session_activity',
       'read_activity_detail',
     ]);
     const result = await client.callTool({
@@ -52,6 +63,14 @@ it('exposes only read-only scoped collection tools over the real stdio transport
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result)).toContain('outside this task');
     expect(JSON.stringify(result)).not.toContain('fixture-only');
+    const first = await client.callTool({ name: 'collect_session_activity', arguments: {} });
+    expect(JSON.stringify(first)).toContain('hasMore\\":true');
+    let audit = JSON.parse(await readFile(join(directory, 'audit.json'), 'utf8'));
+    expect(audit.covered).not.toContain('local-sessions');
+    await client.callTool({ name: 'collect_session_activity', arguments: {} });
+    audit = JSON.parse(await readFile(join(directory, 'audit.json'), 'utf8'));
+    expect(audit.covered).toContain('local-sessions');
+    expect(audit.evidence).toHaveLength(11);
   } finally {
     await client.close();
     await rm(directory, { recursive: true, force: true });

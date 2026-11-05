@@ -296,3 +296,22 @@ it('prevents a second instance from recovering a live job', async () => {
   const releaseAgain = acquireInstance(lockPath);
   releaseAgain();
 });
+
+it('persists partial source results without marking complete coverage', () => {
+  const store = openStore(':memory:');
+  try {
+    store.enqueue('partial', '2026-11-05');
+    store.commit('partial', '2026-11-05', {
+      result,
+      audit,
+      agent: 'codex',
+      fallback: null,
+      warning: 'Session catch-up incomplete.',
+    });
+    expect(store.daily('2026-11-05').evidence).toHaveLength(1);
+    expect(store.daily('2026-11-05').jobs[0]?.status).toBe('partial');
+    expect(store.coverage('2026-11-05')).toBeUndefined();
+  } finally {
+    store.close();
+  }
+});
