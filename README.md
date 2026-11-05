@@ -59,13 +59,28 @@ write to GitLab.
 
 GitLab collection uses its Events API. It includes supported push, merge
 request, issue, and discussion events; it is not a complete audit trail of every
-GitLab interaction. Daily and weekly reports use the stored record and can be generated even when GitLab is currently unreachable.
+GitLab interaction. The agent can inspect pushed-commit ranges through the
+[GitLab comparison API](https://docs.gitlab.com/api/repositories/#compare-branches-tags-or-commits),
+showing up to 25 titles with explicit omissions. When the previous ref is missing,
+only the tip commit is available. Pushing a coworker's commits does not establish
+authorship. Inspected commit context is retained with the source evidence. Daily and weekly reports use the stored record and can be generated even when GitLab is currently unreachable.
 
 ## Agent behavior
 
 Each run uses a temporary workspace and the same scoped MCP tools for either CLI.
 Codex runs read-only with an ephemeral session; Claude Code runs without built-in
-tools or session persistence. Both retain their own existing CLI authentication.
+tools or session persistence. Both retain their existing CLI authentication homes. Codex keeps its configured model,
+provider, authentication helpers, and network transport; unrelated MCP servers,
+plugins, lifecycle hooks, shell/browser tools, and extra agents are disabled for
+Worklog runs. Set `WORKLOG_CODEX_PROFILE=company` when you normally select a named
+Codex profile. Claude copies user-level environment, model, and authentication
+helper settings into a private temporary file; unrelated hooks and plugin settings
+are excluded. Organization-managed policy remains enforced by the CLIs. Start
+Worklog from the same approved shell environment you use for those CLIs.
+
+Provider settings follow the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+and [Claude Code settings reference](https://code.claude.com/docs/en/settings-reference).
+Worklog does not change either CLI's saved settings.
 
 If Codex fails, times out, or returns invalid or incomplete results, Worklog tries
 Claude Code once. GitLab access failures are reported without switching agents.

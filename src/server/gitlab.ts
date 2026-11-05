@@ -10,7 +10,13 @@ interface GitLabEvent {
   target_type: string | null;
   target_iid: number | null;
   note?: { body: string; noteable_type: string; noteable_iid: number };
-  push_data?: { commit_title: string | null; commit_to: string | null; ref: string | null };
+  push_data?: {
+    commit_title: string | null;
+    commit_to: string | null;
+    commit_from?: string | null;
+    commit_count?: number;
+    ref: string | null;
+  };
 }
 export class GitLab {
   constructor(
@@ -100,6 +106,25 @@ export class GitLab {
             'Project activity'
           ).slice(0, 4000),
           url: `${this.base}/${project}${suffix}`,
+          ...(item.push_data?.commit_to &&
+          /^[a-fA-F0-9]{40,64}$/.test(item.push_data.commit_to) &&
+          !/^0+$/.test(item.push_data.commit_to)
+            ? {
+                push: {
+                  from:
+                    item.push_data.commit_from &&
+                    /^[a-fA-F0-9]{40,64}$/.test(item.push_data.commit_from) &&
+                    !/^0+$/.test(item.push_data.commit_from)
+                      ? item.push_data.commit_from
+                      : null,
+                  to: item.push_data.commit_to,
+                  count: Number.isInteger(item.push_data.commit_count)
+                    ? (item.push_data.commit_count ?? null)
+                    : null,
+                  ref: item.push_data.ref,
+                },
+              }
+            : {}),
           targetType: type ?? null,
           targetIid: iid ?? null,
         });
@@ -109,6 +134,52 @@ export class GitLab {
     throw new SourceFailure({
       message: 'Activity exceeds the pagination limit; choose a smaller collection scope.',
     });
+  }
+  async pushDetail(item: Evidence) {
+    const push = item.push;
+    if (!push) throw new SourceFailure({ message: 'Push metadata is unavailable.' });
+    const base = `projects/${encodeURIComponent(item.project)}/repository`;
+    const raw = push.from
+      ? await this.get(
+          `${base}/compare?${new URLSearchParams({ from: push.from, to: push.to, straight: 'true' })}`,
+        )
+      : await this.get(`${base}/commits/${encodeURIComponent(push.to)}`);
+    const values = push.from ? (raw as { commits?: unknown }).commits : [raw];
+    if (!Array.isArray(values))
+      throw new SourceFailure({ message: 'Unexpected GitLab commit response.' });
+    const commits = values.slice(0, 25).map((value: unknown) => {
+      const commit = value as Record<string, unknown> | null;
+      if (
+        !commit ||
+        typeof commit.id !== 'string' ||
+        !/^[a-fA-F0-9]{40,64}$/.test(commit.id) ||
+        typeof commit.title !== 'string'
+      )
+        throw new SourceFailure({ message: 'GitLab returned invalid commit details.' });
+      return {
+        id: commit.id,
+        title: commit.title.slice(0, 300),
+        author: String(commit.author_name ?? '').slice(0, 100),
+        authoredAt: String(commit.authored_date ?? commit.created_at ?? '').slice(0, 50),
+      };
+    });
+    const limitations = [
+      'A push records who pushed changes; commit authors may be different people. Commit titles are evidence of changes, not proof of deployment or successful testing.',
+    ];
+    if (!push.from)
+      limitations.push(
+        'The previous ref is unavailable. Only the tip commit is shown; this does not enumerate the full push or branch history.',
+      );
+    if (values.length > 25)
+      limitations.push(`Showing 25 of ${values.length} commits; remaining titles are omitted.`);
+    return {
+      ref: push.ref,
+      from: push.from,
+      to: push.to,
+      reportedCount: push.count,
+      commits,
+      limitations,
+    };
   }
   async detail(project: string, type: 'merge_requests' | 'issues', iid: number) {
     const detail = (await this.get(

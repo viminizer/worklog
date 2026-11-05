@@ -77,6 +77,7 @@ export interface Evidence {
   title: string;
   url: string;
   excerpt?: string;
+  push?: { from: string | null; to: string; count: number | null; ref: string | null };
   session?: {
     provider: 'codex' | 'claude';
     id: string;

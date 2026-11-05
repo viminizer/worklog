@@ -8,6 +8,7 @@ import { makeAgentRunner, validateResult } from '../src/server/agent.js';
 import { dayWindow } from '../src/server/config.js';
 import { discoverProjects, projectFromRemote } from '../src/server/discovery.js';
 import { AgentFailure, SourceFailure } from '../src/server/errors.js';
+import { retainPushContext } from '../src/server/evidence.js';
 import { GitLab } from '../src/server/gitlab.js';
 import { acquireInstance } from '../src/server/instance.js';
 import { type Execute, execute } from '../src/server/process.js';
@@ -311,6 +312,89 @@ it('persists partial source results without marking complete coverage', () => {
     expect(store.daily('2026-11-05').evidence).toHaveLength(1);
     expect(store.daily('2026-11-05').jobs[0]?.status).toBe('partial');
     expect(store.coverage('2026-11-05')).toBeUndefined();
+  } finally {
+    store.close();
+  }
+});
+
+it('reads every pushed commit title without confusing pushing with authorship', async () => {
+  const from = 'a'.repeat(40);
+  const to = 'b'.repeat(40);
+  const paths: string[] = [];
+  const gitlab = new GitLab('https://git.example', 'fixture', async (url) => {
+    paths.push(String(url));
+    return new Response(
+      JSON.stringify({
+        commits: [
+          { id: from, title: 'Add form', author_name: 'Coworker' },
+          { id: to, title: 'Validate form', author_name: 'Kevin' },
+        ],
+      }),
+    );
+  });
+  const detail = await gitlab.pushDetail({
+    ...evidence,
+    push: { from, to, count: 2, ref: 'main' },
+  });
+  expect(detail.commits.map((item) => item.title)).toEqual(['Add form', 'Validate form']);
+  expect(detail.limitations.join(' ')).toContain('authors may be different');
+  expect(paths[0]).toContain('straight=true');
+  expect(paths[0]).toContain(encodeURIComponent(evidence.project));
+});
+it('makes missing push ranges and capped commit context explicit', async () => {
+  const to = 'b'.repeat(40);
+  const gitlab = new GitLab(
+    'https://git.example',
+    'fixture',
+    async () => new Response(JSON.stringify({ id: to, title: 'Tip commit' })),
+  );
+  const tip = await gitlab.pushDetail({
+    ...evidence,
+    push: { from: null, to, count: 8, ref: 'new-branch' },
+  });
+  expect(tip.commits).toHaveLength(1);
+  expect(tip.limitations.join(' ')).toContain('does not enumerate the full push');
+  const many = new GitLab(
+    'https://git.example',
+    'fixture',
+    async () =>
+      new Response(
+        JSON.stringify({
+          commits: Array.from({ length: 30 }, () => ({ id: to, title: 'Commit' })),
+        }),
+      ),
+  );
+  const capped = await many.pushDetail({
+    ...evidence,
+    push: { from: 'a'.repeat(40), to, count: 30, ref: 'main' },
+  });
+  expect(capped.commits).toHaveLength(25);
+  expect(capped.limitations.join(' ')).toContain('25 of 30');
+});
+
+it('retains inspected commit context across repeated reads and collections of an unchanged push', () => {
+  const store = openStore(':memory:');
+  const push = {
+    ...evidence,
+    push: { from: 'a'.repeat(40), to: 'b'.repeat(40), count: 2, ref: 'main' },
+  };
+  const inspected = { ...push, excerpt: 'Two scoped commit titles and authorship caveat.' };
+  try {
+    expect(retainPushContext(push, inspected).excerpt).toBe(inspected.excerpt);
+    for (const [index, item] of [inspected, push].entries()) {
+      const id = `refresh:${index}`;
+      store.enqueue(id, '2026-11-05');
+      store.commit(id, '2026-11-05', {
+        result,
+        audit: { ...audit, evidence: [item] },
+        agent: 'codex',
+        fallback: null,
+      });
+    }
+    expect(store.evidence(push.id)?.excerpt).toBe(inspected.excerpt);
+    expect(
+      retainPushContext({ ...push, push: { ...push.push, to: 'c'.repeat(40) } }, inspected).excerpt,
+    ).toBeUndefined();
   } finally {
     store.close();
   }

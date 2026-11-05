@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Effect, Layer } from 'effect';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AgentRunner, makeAgentRunner, validateReport } from '../src/server/agent.js';
 import { AgentFailure } from '../src/server/errors.js';
 import { generateReport, reportId, reportInputHash, validateRange } from '../src/server/report.js';
@@ -27,7 +27,12 @@ function store() {
   stores.push(value);
   return value;
 }
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-05T12:00:00Z'));
+});
 afterEach(() => {
+  vi.useRealTimers();
   for (const value of stores.splice(0)) value.close();
 });
 function seed(database: StoreApi) {

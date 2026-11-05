@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import type { DailyView, Evidence, Job } from '../shared/domain.js';
 import type { CollectionResult } from './agent.js';
 import { StorageFailure } from './errors.js';
+import { retainPushContext } from './evidence.js';
 import { createReportStore } from './report-store.js';
 import type { SessionCursor } from './sessions.js';
 
@@ -213,10 +214,12 @@ export function openStore(path: string) {
           'INSERT INTO activity(id,day,data,scope) VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET day=excluded.day, data=excluded.data',
         );
         for (const item of result.audit.evidence) {
-          const value = JSON.stringify(item);
           const old = db
             .prepare('SELECT data FROM activity WHERE id=? AND scope=?')
             .get(item.id, reports.scope()) as { data: string } | undefined;
+          const value = JSON.stringify(
+            retainPushContext(item, old ? (JSON.parse(old.data) as Evidence) : undefined),
+          );
           if (old?.data !== value)
             db.prepare(
               'INSERT INTO day_revisions(scope,day,revision) VALUES(?,?,1) ON CONFLICT(scope,day) DO UPDATE SET revision=revision+1',
