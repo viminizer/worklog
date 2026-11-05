@@ -22,17 +22,21 @@ npm run build
 npm start
 ```
 
-Open <http://127.0.0.1:4318>. The dashboard works before configuration and shows
-where to create your settings file.
+Open <http://127.0.0.1:4318>. Complete **Connect your work** in the dashboard: select a work folder, GitLab URL,
+read-only token, timezone, and history start date. Save, then use **Check saved GitLab
+connection** while on the company network. Existing tokens stay saved when the
+token field is left blank. Settings cannot change during an active background task.
 
-Create `~/.local/share/worklog/config.json` outside this repository:
+Stop the application before editing configuration manually. For manual configuration, create `~/.local/share/worklog/config.json` outside this repository:
 
 ```json
 {
   "workRoot": "/absolute/path/to/work",
   "gitlabUrl": "https://gitlab.example.com",
   "token": "your-read-only-token",
-  "timezone": "Asia/Seoul"
+  "timezone": "Asia/Seoul",
+  "automatic": true,
+  "collectionStartDate": "2026-11-01"
 }
 ```
 
@@ -55,7 +59,7 @@ write to GitLab.
 
 GitLab collection uses its Events API. It includes supported push, merge
 request, issue, and discussion events; it is not a complete audit trail of every
-GitLab interaction. Automatic schedules, report editing, and weekly reports are subsequent implementation phases.
+GitLab interaction. Report editing and weekly reports are subsequent implementation phases.
 
 ## Agent behavior
 
@@ -125,3 +129,28 @@ does not discard new local evidence.
 For nonstandard session storage, `WORKLOG_CODEX_SESSIONS_DIR` and
 `WORKLOG_CLAUDE_SESSIONS_DIR` override the reader directories independently of the
 CLI authentication homes.
+
+## Automatic collection and recovery
+
+Automatic collection checks every 30 minutes while the process runs. On startup or
+wake it schedules today and catches up missing dates from the configured history
+start, in bounded batches. The default history start is six days before setup.
+Missing historical dates remain eligible after failures. Set a later history start
+to bound initial catch-up; older dates can always be collected manually.
+
+SQLite stores queued tasks and retry times. Duplicate requests for a pending day
+coalesce. One agent task runs at a time, with at most three job attempts and 30/60-second
+retry delays. Codex-to-Claude fallback happens within each attempt. Interrupted
+jobs resume after restart while retaining their attempt budget; exhausted historical
+jobs can be retried by a later automatic check. The dashboard shows global queue
+status, per-day attempts, and last complete collection.
+
+Turn automatic collection off in Settings for manual-only use. Saving settings
+cancels queued tasks and restarts the scheduler from the chosen history scope; it
+does not remove stored records. Stop the process with Ctrl+C before backups.
+Data and credentials must be outside Git repositories, including symlinked locations.
+
+A historical day is finalized only by collection after that day ends in the configured
+timezone. New session evidence invalidates affected dates for catch-up. Changing the
+work root, GitLab instance, token, or timezone clears completeness markers while
+preserving stored records, so historical dates are checked against the new sources.

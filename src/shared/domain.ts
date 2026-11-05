@@ -60,6 +60,10 @@ export interface Job {
   fallback: string | null;
   error: string | null;
   createdAt: string;
+  kind: string;
+  attempts: number;
+  nextRunAt: string | null;
+  payload: string;
 }
 export interface DailyView {
   evidence: Evidence[];
@@ -75,4 +79,11 @@ export interface AppStatus {
   gitlabUrl: string | null;
   timezone: string;
   setupError: string | null;
+  automatic: boolean;
+  collectionStartDate: string;
+  activeJob: Job | null;
+  queuedJobs: number;
+  lastCollectedAt: string | null;
+  nextAutomaticAt: string | null;
+  workerError: string | null;
 }

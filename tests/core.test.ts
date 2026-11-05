@@ -187,14 +187,14 @@ it('commits evidence idempotently and retains the previous record after failure'
     store.close();
   }
 });
-it('marks interrupted collection jobs as failed after reopening', async () => {
+it('retains queued collection jobs after reopening', async () => {
   const path = join(await temp(), 'worklog.db');
   const first = openStore(path);
   first.enqueue('interrupted', '2026-11-05');
   first.close();
   const reopened = openStore(path);
   try {
-    expect(reopened.daily('2026-11-05').jobs[0]?.status).toBe('failed');
+    expect(reopened.daily('2026-11-05').jobs[0]?.status).toBe('queued');
   } finally {
     reopened.close();
   }

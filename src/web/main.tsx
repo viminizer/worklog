@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AppStatus, DailyView, Evidence } from '../shared/domain.js';
 import './style.css';
+import { Settings } from './settings.js';
 
 async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, options);
@@ -33,6 +34,7 @@ function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: ()
   );
 }
 function App() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence>();
   const [status, setStatus] = useState<AppStatus>();
   const [day, setDay] = useState(DateTime.local().toFormat('yyyy-MM-dd'));
@@ -64,11 +66,13 @@ function App() {
       if (fetching) return;
       fetching = true;
       try {
-        const value = await api<DailyView>(
-          `/api/day?day=${day}&refresh=${refresh}&offset=${offset}`,
-        );
+        const [value, currentStatus] = await Promise.all([
+          api<DailyView>(`/api/day?day=${day}&refresh=${refresh}&offset=${offset}`),
+          api<AppStatus>('/api/status'),
+        ]);
         if (active) {
           setView(value);
+          setStatus(currentStatus);
           setLoadError('');
         }
       } catch (error) {
@@ -108,9 +112,18 @@ function App() {
         <a className="wordmark" href="/">
           w<span>▧</span>rklog<span className="period">.</span>
         </a>
-        <span className="local-badge">
-          <i /> LOCAL WORKSPACE
-        </span>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="quiet"
+            onClick={() => setSettingsOpen((value) => !value)}
+          >
+            Settings
+          </button>
+          <span className="local-badge">
+            <i /> LOCAL WORKSPACE
+          </span>
+        </div>
       </header>
       <main>
         <div className="intro">
@@ -141,16 +154,23 @@ function App() {
             {error || loadError}
           </div>
         )}
-        {status && !status.configured && (
-          <section className="notice setup">
-            <p className="eyebrow">A PLACE TO BEGIN</p>
-            <h2>Connect your work.</h2>
-            <p>
-              Create your local configuration at <code>{status.configPath}</code> with your work
-              folder, GitLab URL, read-only token, and timezone. See the README for the format.
-            </p>
-            {status.setupError && <p role="alert">{status.setupError}</p>}
-          </section>
+        {status && (!status.configured || settingsOpen) && (
+          <Settings
+            status={status}
+            onClose={() => setSettingsOpen(false)}
+            onSaved={(value) => {
+              setStatus(value);
+              setError('');
+              setSettingsOpen(false);
+              setDay(DateTime.now().setZone(value.timezone).toFormat('yyyy-MM-dd'));
+              setRefresh((value) => value + 1);
+            }}
+          />
+        )}
+        {status?.workerError && (
+          <p role="alert" className="notice error">
+            Background queue: {status.workerError}
+          </p>
         )}
         <div className="workspace">
           <section className="journal">
@@ -228,12 +248,37 @@ function App() {
           <aside>
             <section className="side-section">
               <p className="eyebrow">COLLECTION STATUS</p>
+              {status?.configured && (
+                <div className="queue-summary">
+                  <p>
+                    {status.activeJob
+                      ? `Collecting ${status.activeJob.day}`
+                      : status.automatic
+                        ? 'Automatic collection is on'
+                        : 'Automatic collection is paused'}
+                  </p>
+                  <p className="muted">
+                    {status.queuedJobs} queued ·{' '}
+                    {status.lastCollectedAt
+                      ? `Last complete: ${DateTime.fromISO(status.lastCollectedAt).toRelative()}`
+                      : 'No complete collection yet'}
+                  </p>
+                  {status.automatic && status.nextAutomaticAt && (
+                    <p className="muted">
+                      Next check {DateTime.fromISO(status.nextAutomaticAt).toRelative()}
+                    </p>
+                  )}
+                </div>
+              )}
               {view?.jobs.length ? (
                 view.jobs.slice(0, 4).map((job) => (
                   <div className="job" key={job.id}>
                     <div>
                       <strong>{job.status}</strong>
-                      <span>{job.agent ?? 'Preparing'}</span>
+                      <span>
+                        {job.agent ?? 'Preparing'}
+                        {job.attempts > 0 ? ` · attempt ${job.attempts}/3` : ''}
+                      </span>
                     </div>
                     <time>
                       {DateTime.fromISO(job.createdAt).toLocaleString(DateTime.TIME_SIMPLE)}

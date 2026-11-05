@@ -4,6 +4,7 @@ import { AgentRunner } from './agent.js';
 import { type AppConfig, configPath, dayWindow } from './config.js';
 import { discoverProjects } from './discovery.js';
 import { message, SourceFailure, StorageFailure } from './errors.js';
+import { GitLab } from './gitlab.js';
 import { ingestSessions } from './sessions.js';
 import { Store } from './store.js';
 
@@ -60,9 +61,23 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
             'No GitLab repositories or eligible local sessions found under the work root.',
         }),
       );
+    const userId = projects.length
+      ? yield* Effect.tryPromise({
+          try: () => new GitLab(config.gitlabUrl, config.token).identity(),
+          catch: (error) =>
+            error instanceof SourceFailure
+              ? error
+              : new SourceFailure({ message: 'Cannot verify GitLab access.' }),
+        })
+      : undefined;
     const window = dayWindow(day, config.timezone);
     const result = yield* agent.collect({
-      task: { projects: projects.map((project) => project.path), ...window, sessionEvidence },
+      task: {
+        projects: projects.map((project) => project.path),
+        ...window,
+        sessionEvidence,
+        userId,
+      },
       configFile: configPath,
       onAttempt: (name, fallback) => store.attempt(id, name, fallback),
     });

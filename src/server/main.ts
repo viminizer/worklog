@@ -8,9 +8,18 @@ import { DateTime } from 'luxon';
 import type { AppStatus } from '../shared/domain.js';
 import { AgentRunnerLive } from './agent.js';
 import { collectDay } from './collection.js';
-import { configPath, dataDir, dayWindow, loadConfig, prepareDataDir } from './config.js';
+import {
+  configPath,
+  dataDir,
+  dayWindow,
+  loadConfig,
+  prepareDataDir,
+  saveConfig,
+} from './config.js';
 import { message } from './errors.js';
+import { GitLab } from './gitlab.js';
 import { acquireInstance } from './instance.js';
+import { createQueue, syncSourceScope } from './queue.js';
 import { Store, storeLayer } from './store.js';
 
 await prepareDataDir();
@@ -25,8 +34,22 @@ const store = await runtime.runPromise(
 );
 const port = Number(process.env.PORT ?? 4318);
 const webRoot = resolve(fileURLToPath(new URL('../../dist/', import.meta.url)));
-const controller = new AbortController();
-let collection: Promise<void> | undefined;
+const queue = createQueue({
+  store,
+  config: loadConfig,
+  run: (job, config, signal) => runtime.runPromise(collectDay(job.id, job.day, config), { signal }),
+});
+let timer: ReturnType<typeof setInterval> | undefined;
+function queueStatus() {
+  const next = store.state('next_auto');
+  return {
+    activeJob: store.running(),
+    queuedJobs: store.queueCount(),
+    lastCollectedAt: store.lastCollected(),
+    nextAutomaticAt: Number(next) > 0 ? new Date(Number(next)).toISOString() : null,
+    workerError: queue.error(),
+  };
+}
 const dayInput = Schema.Struct({ day: Schema.String });
 async function status(): Promise<AppStatus> {
   try {
@@ -38,6 +61,11 @@ async function status(): Promise<AppStatus> {
       gitlabUrl: config.gitlabUrl,
       timezone: config.timezone,
       setupError: null,
+      automatic: config.automatic !== false,
+      collectionStartDate:
+        config.collectionStartDate ??
+        DateTime.now().setZone(config.timezone).minus({ days: 6 }).toFormat('yyyy-MM-dd'),
+      ...queueStatus(),
     };
   } catch (error) {
     return {
@@ -46,6 +74,9 @@ async function status(): Promise<AppStatus> {
       workRoot: null,
       gitlabUrl: null,
       timezone: 'UTC',
+      automatic: true,
+      collectionStartDate: DateTime.now().minus({ days: 6 }).toFormat('yyyy-MM-dd'),
+      ...queueStatus(),
       setupError:
         (error as NodeJS.ErrnoException).code === 'ENOENT'
           ? null
@@ -62,12 +93,15 @@ function json(response: ServerResponse, code: number, data: unknown) {
   response.end(JSON.stringify(data));
 }
 async function body(request: IncomingMessage): Promise<unknown> {
-  let text = '';
+  const chunks: Buffer[] = [];
+  let bytes = 0;
   for await (const chunk of request) {
-    text += chunk.toString();
-    if (text.length > 16384) throw new Error('Request is too large.');
+    const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += data.length;
+    if (bytes > 16384) throw new Error('Request is too large.');
+    chunks.push(data);
   }
-  return JSON.parse(text);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 const server = createServer(async (request, response) => {
   // Loopback binding alone does not protect against DNS rebinding or cross-site POSTs.
@@ -89,6 +123,29 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && url.pathname === '/api/status')
       return json(response, 200, await status());
+    if (request.method === 'POST' && url.pathname === '/api/settings') {
+      if (!queue.pause())
+        return json(response, 409, {
+          error: 'Wait for the current background task to finish before changing settings.',
+        });
+      try {
+        const saved = await saveConfig(await body(request));
+        syncSourceScope(store, saved);
+        store.cancelQueued();
+        store.setState('next_auto', '0');
+        store.setState('auto_scope', '');
+        return json(response, 200, await status());
+      } finally {
+        queue.resume();
+      }
+    }
+    if (request.method === 'POST' && url.pathname === '/api/connection') {
+      const config = await loadConfig().catch(() => {
+        throw new Error('Save valid settings before checking GitLab.');
+      });
+      const userId = await new GitLab(config.gitlabUrl, config.token).identity();
+      return json(response, 200, { userId });
+    }
     if (request.method === 'GET' && url.pathname === '/api/evidence') {
       const item = store.evidence(url.searchParams.get('id') ?? '');
       return item
@@ -112,19 +169,8 @@ const server = createServer(async (request, response) => {
       });
       const { day } = Schema.decodeUnknownSync(dayInput)(await body(request));
       dayWindow(day, config.timezone);
-      const active = store.active();
-      if (active)
-        return json(response, 409, { error: 'A collection is already running.', jobId: active.id });
-      const id = randomUUID();
-      store.enqueue(id, day);
-      collection = runtime
-        .runPromise(
-          collectDay(id, day, config).pipe(
-            Effect.catchCause((cause) => Effect.sync(() => store.fail(id, String(cause)))),
-          ),
-          { signal: controller.signal },
-        )
-        .catch(() => store.fail(id, 'Collection interrupted. Collect again to retry.'));
+      const id = store.enqueue(randomUUID(), day);
+      void queue.tick();
       return json(response, 202, { jobId: id });
     }
     if (url.pathname.startsWith('/api/'))
@@ -161,14 +207,20 @@ const server = createServer(async (request, response) => {
     });
   }
 });
-server.listen(port, '127.0.0.1', () => console.log(`Worklog: http://127.0.0.1:${port}`));
+server.listen(port, '127.0.0.1', () => {
+  console.log(`Worklog: http://127.0.0.1:${port}`);
+  timer = setInterval(() => {
+    void queue.tick();
+  }, 1000);
+  void queue.tick();
+});
 let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  controller.abort();
+  if (timer) clearInterval(timer);
   if (server.listening) server.close();
-  void Promise.resolve(collection).finally(() => runtime.dispose().finally(releaseInstance));
+  void queue.stop().finally(() => runtime.dispose().finally(releaseInstance));
 }
 server.on('error', (error) => {
   console.error(message(error));

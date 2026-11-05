@@ -14,6 +14,7 @@ export interface CollectionTask {
   start: string;
   end: string;
   sessionEvidence?: Evidence[];
+  userId?: number;
 }
 const [taskPath, auditPath, configFile] = process.argv.slice(2);
 if (!taskPath || !auditPath || !configFile)
@@ -22,7 +23,7 @@ const config = await loadConfig(configFile);
 const task: CollectionTask = JSON.parse(await readFile(taskPath, 'utf8'));
 const gitlab = new GitLab(config.gitlabUrl, config.token);
 const audit: Audit = { covered: [], evidence: [] };
-let userId: number | undefined;
+let userId: number | undefined = task.userId;
 const save = () => writeFileSync(auditPath, JSON.stringify(audit), { mode: 0o600 });
 const server = new McpServer({ name: 'worklog', version: packageInfo.version });
 server.registerTool(
