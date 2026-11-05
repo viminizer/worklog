@@ -13,6 +13,8 @@ export interface SessionCursor {
   modified: number;
   scope: string;
   consumedHash: string;
+  workspace?: string;
+  baseOffset?: number;
 }
 interface SessionOptions {
   workRoot: string;
@@ -102,6 +104,7 @@ export async function ingestSessions(
 ): Promise<{ files: number; records: number; hasMore: boolean; warnings: string[] }> {
   const root = await realpath(options.workRoot);
   const scope = `${root}:${options.timezone}`;
+  const workspace = options.store.scope();
   const warnings: string[] = [];
   let files = 0;
   let records = 0;
@@ -143,6 +146,7 @@ export async function ingestSessions(
           const previous = options.store.sessionCursor(path);
           if (
             previous &&
+            (previous.workspace ?? 'legacy') === workspace &&
             previous.scope === scope &&
             info.size === previous.offset &&
             info.mtimeMs === previous.modified
@@ -163,19 +167,26 @@ export async function ingestSessions(
             files++;
             const fingerprint = `${info.dev}:${info.ino}:${hash(metadata.firstLine)}`;
             let consumed = createHash('sha256');
-            let resume = false;
-            if (
-              previous &&
-              previous.scope === scope &&
-              previous.fingerprint === fingerprint &&
-              info.size >= previous.offset
-            ) {
+            let validPrefix = false;
+            if (previous && previous.fingerprint === fingerprint && info.size >= previous.offset) {
               consumed = await prefixHash(file, previous.offset, options.signal);
-              resume = consumed.copy().digest('hex') === previous.consumedHash;
+              validPrefix = consumed.copy().digest('hex') === previous.consumedHash;
             }
-            if (!resume) consumed = createHash('sha256');
-            let position = resume && previous ? previous.offset : 0;
-            if (resume && previous) cwd = previous.cwd;
+            const changedWorkspace = Boolean(
+              previous && (previous.workspace ?? 'legacy') !== workspace,
+            );
+            const baseOffset =
+              changedWorkspace && previous ? previous.offset : (previous?.baseOffset ?? 0);
+            if (previous && !validPrefix && (changedWorkspace || baseOffset > 0))
+              throw new Error(
+                'Session changed across a workspace boundary. Start a new coding session; archived history remains preserved.',
+              );
+            const resume = Boolean(
+              previous && validPrefix && (previous.scope === scope || changedWorkspace),
+            );
+            let position = resume && previous ? previous.offset : baseOffset;
+            if (!resume) consumed = await prefixHash(file, position, options.signal);
+            if (previous && (resume || baseOffset > 0)) cwd = previous.cwd;
             let committed = position;
             let buffer = Buffer.alloc(0);
             const evidence: Evidence[] = [];
@@ -261,7 +272,16 @@ export async function ingestSessions(
               throw new Error('Session changed during collection; retry.');
             options.store.ingestSession(
               path,
-              { offset: committed, fingerprint, cwd, modified: info.mtimeMs, scope, consumedHash },
+              {
+                offset: committed,
+                fingerprint,
+                cwd,
+                modified: info.mtimeMs,
+                scope,
+                consumedHash,
+                workspace,
+                baseOffset,
+              },
               evidence,
               options.timezone,
             );

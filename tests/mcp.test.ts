@@ -55,6 +55,8 @@ it('exposes only read-only scoped collection tools over the real stdio transport
       'collect_project_activity',
       'collect_session_activity',
       'read_activity_detail',
+      'read_report_evidence',
+      'read_report_material',
     ]);
     const result = await client.callTool({
       name: 'collect_project_activity',

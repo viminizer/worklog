@@ -3,14 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { AppStatus, DailyView, Evidence } from '../shared/domain.js';
 import './style.css';
+import { api } from './api.js';
+import { EvidenceReference } from './evidence-reference.js';
+import { Reports } from './reports.js';
 import { Settings } from './settings.js';
 
-async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(path, options);
-  const value = await response.json();
-  if (!response.ok) throw new Error(value.error ?? 'Request failed.');
-  return value;
-}
 function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -34,6 +31,8 @@ function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: ()
   );
 }
 function App() {
+  const [historyScope, setHistoryScope] = useState('');
+  const [tab, setTab] = useState<'log' | 'reports'>('log');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence>();
   const [status, setStatus] = useState<AppStatus>();
@@ -41,38 +40,61 @@ function App() {
   const [view, setView] = useState<DailyView>();
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [statusError, setStatusError] = useState('');
   const [pending, setPending] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [offset, setOffset] = useState(0);
-  useEffect(() => {
-    let active = true;
-    api<AppStatus>('/api/status')
-      .then((value) => {
-        if (active) {
-          setStatus(value);
-          setDay(DateTime.now().setZone(value.timezone).toFormat('yyyy-MM-dd'));
-        }
-      })
-      .catch((error) => active && setError(error.message));
-    return () => {
-      active = false;
-    };
-  }, []);
+  const scope = historyScope || status?.workspaceId || '';
+  const archived = Boolean(scope && status && scope !== status.workspaceId);
   useEffect(() => {
     let active = true;
     let fetching = false;
+    let initialized = false;
+    const controller = new AbortController();
+    const load = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const value = await api<AppStatus>('/api/status', { signal: controller.signal });
+        if (active) {
+          setStatus(value);
+          if (!initialized) setDay(DateTime.now().setZone(value.timezone).toFormat('yyyy-MM-dd'));
+          initialized = true;
+          setStatusError('');
+        }
+      } catch (error) {
+        if (active)
+          setStatusError(error instanceof Error ? error.message : 'Cannot connect to Worklog.');
+      } finally {
+        fetching = false;
+      }
+    };
+    void load();
+    const timer = setInterval(load, 3000);
+    return () => {
+      active = false;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, []);
+  useEffect(() => {
+    if (!scope) return;
+    let active = true;
+    let fetching = false;
+    const controller = new AbortController();
     setView(undefined);
     const load = async () => {
       if (fetching) return;
       fetching = true;
       try {
-        const [value, currentStatus] = await Promise.all([
-          api<DailyView>(`/api/day?day=${day}&refresh=${refresh}&offset=${offset}`),
-          api<AppStatus>('/api/status'),
-        ]);
+        const value = await api<DailyView>(
+          `/api/day?day=${day}&refresh=${refresh}&offset=${offset}&scope=${encodeURIComponent(scope)}`,
+          {
+            signal: controller.signal,
+          },
+        );
         if (active) {
           setView(value);
-          setStatus(currentStatus);
           setLoadError('');
         }
       } catch (error) {
@@ -85,9 +107,10 @@ function App() {
     const timer = setInterval(load, 3000);
     return () => {
       active = false;
+      controller.abort();
       clearInterval(timer);
     };
-  }, [day, refresh, offset]);
+  }, [day, refresh, offset, scope]);
   const running = pending || view?.jobs.some((job) => ['queued', 'running'].includes(job.status));
   async function collect() {
     setPending(true);
@@ -107,7 +130,7 @@ function App() {
   }
   const formatted = DateTime.fromISO(day).toFormat('cccc, LLLL d');
   return (
-    <div className="app">
+    <div className={`app${status?.configured ? ' configured' : ''}`}>
       <header>
         <a className="wordmark" href="/">
           w<span>▧</span>rklog<span className="period">.</span>
@@ -129,29 +152,71 @@ function App() {
         <div className="intro">
           <p className="eyebrow">THE WORKING RECORD</p>
           <h1>
-            A little less remembering.
-            <br />
-            <em>A clearer picture.</em>
+            {status?.configured ? (
+              'Your working record.'
+            ) : (
+              <>
+                A little less remembering.
+                <br />
+                <em>A clearer picture.</em>
+              </>
+            )}
           </h1>
           <p className="lede">Your work, gathered from the places it happens.</p>
         </div>
+        {status && status.workspaces.length > 1 && (
+          <label className="workspace-picker">
+            History
+            <select
+              value={scope}
+              onChange={(event) => {
+                setHistoryScope(
+                  event.target.value === status.workspaceId ? '' : event.target.value,
+                );
+                setOffset(0);
+              }}
+            >
+              {status.workspaces.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.id === status.workspaceId
+                    ? 'Current workspace'
+                    : (item.workRoot ?? 'Imported history')}
+                  {item.id !== status.workspaceId && item.gitlabUrl ? ` · ${item.gitlabUrl}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {archived && (
+          <p className="notice">
+            Archived workspace. You can browse records and edit saved reports. Collection and
+            generation use the current workspace.
+          </p>
+        )}
         <div className="toolbar">
           <div>
             <label htmlFor="day">YOUR DAY</label>
             <input
               id="day"
               type="date"
+              max={DateTime.now()
+                .setZone(status?.timezone ?? 'UTC')
+                .toFormat('yyyy-MM-dd')}
               value={day}
               onChange={(event) => event.target.value && (setDay(event.target.value), setOffset(0))}
             />
           </div>
-          <button type="button" disabled={!status?.configured || running} onClick={collect}>
+          <button
+            type="button"
+            disabled={!status?.configured || running || archived}
+            onClick={collect}
+          >
             {running ? 'Collecting…' : '↻  Collect activity'}
           </button>
         </div>
-        {(error || loadError) && (
+        {(error || loadError || statusError) && (
           <div role="alert" className="notice error">
-            {error || loadError}
+            {error || loadError || statusError}
           </div>
         )}
         {status && (!status.configured || settingsOpen) && (
@@ -172,167 +237,164 @@ function App() {
             Background queue: {status.workerError}
           </p>
         )}
-        <div className="workspace">
-          <section className="journal">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">DAILY LOG</p>
-                <h2>{formatted}</h2>
-              </div>
-              <span className="count">{view?.accomplishments.length ?? '—'} entries</span>
-            </div>
-            {!view && !error && (
-              <p role="status" className="empty">
-                Loading your working record…
-              </p>
-            )}
-            {view && view.accomplishments.length === 0 && (
-              <div className="empty">
-                <span className="empty-mark">↳</span>
-                <h3>Room for today's work.</h3>
-                <p>
-                  {status?.configured
-                    ? 'Collect activity to turn your work into a record you can revisit.'
-                    : 'Connect your sources to start building your daily record.'}
-                </p>
-              </div>
-            )}
-            {view?.accomplishments.map((item) => (
-              <article className="entry" key={item.id}>
-                <span className={`state ${item.state}`}>{item.state}</span>
-                <h3>{item.title}</h3>
-                <div className="sources">
-                  {item.evidenceIds.map((id) => {
-                    const evidence = view.supportingEvidence.find((record) => record.id === id);
-                    return (
-                      evidence &&
-                      (evidence.session ? (
-                        <button
-                          type="button"
-                          className="source-link"
-                          key={id}
-                          onClick={() => setSelectedEvidence(evidence)}
-                        >
-                          {evidence.project} · {evidence.session.provider} ↗
-                        </button>
-                      ) : (
-                        <a key={id} href={evidence.url} target="_blank" rel="noreferrer">
-                          {evidence.project} ↗
-                        </a>
-                      ))
-                    );
-                  })}
+        <nav className="view-tabs" aria-label="Workspace views">
+          <button type="button" aria-pressed={tab === 'log'} onClick={() => setTab('log')}>
+            Daily log
+          </button>
+          <button type="button" aria-pressed={tab === 'reports'} onClick={() => setTab('reports')}>
+            Reports
+          </button>
+        </nav>
+        <div hidden={tab !== 'reports'}>
+          <Reports
+            day={day}
+            scope={scope}
+            archived={archived}
+            status={status}
+            active={tab === 'reports'}
+            onEvidence={setSelectedEvidence}
+          />
+        </div>
+        <div hidden={tab !== 'log'}>
+          <div className="workspace">
+            <section className="journal">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">DAILY LOG</p>
+                  <h2>{formatted}</h2>
                 </div>
-              </article>
-            ))}
-            {(offset > 0 || view?.hasMore) && (
-              <nav className="pagination" aria-label="Daily record pages">
-                <button
-                  type="button"
-                  disabled={offset === 0}
-                  onClick={() => setOffset((value) => Math.max(0, value - 100))}
-                >
-                  Previous
-                </button>
-                <span>Page {offset / 100 + 1}</span>
-                <button
-                  type="button"
-                  disabled={!view?.hasMore}
-                  onClick={() => setOffset((value) => value + 100)}
-                >
-                  Next
-                </button>
-              </nav>
-            )}
-          </section>
-          <aside>
-            <section className="side-section">
-              <p className="eyebrow">COLLECTION STATUS</p>
-              {status?.configured && (
-                <div className="queue-summary">
+                <span className="count">{view?.accomplishments.length ?? '—'} entries</span>
+              </div>
+              {!view && !error && (
+                <p role="status" className="empty">
+                  Loading your working record…
+                </p>
+              )}
+              {view && view.accomplishments.length === 0 && (
+                <div className="empty">
+                  <span className="empty-mark">↳</span>
+                  <h3>Room for today's work.</h3>
                   <p>
-                    {status.activeJob
-                      ? `Collecting ${status.activeJob.day}`
-                      : status.automatic
-                        ? 'Automatic collection is on'
-                        : 'Automatic collection is paused'}
+                    {status?.configured
+                      ? 'Collect activity to turn your work into a record you can revisit.'
+                      : 'Connect your sources to start building your daily record.'}
                   </p>
-                  <p className="muted">
-                    {status.queuedJobs} queued ·{' '}
-                    {status.lastCollectedAt
-                      ? `Last complete: ${DateTime.fromISO(status.lastCollectedAt).toRelative()}`
-                      : 'No complete collection yet'}
-                  </p>
-                  {status.automatic && status.nextAutomaticAt && (
-                    <p className="muted">
-                      Next check {DateTime.fromISO(status.nextAutomaticAt).toRelative()}
-                    </p>
-                  )}
                 </div>
               )}
-              {view?.jobs.length ? (
-                view.jobs.slice(0, 4).map((job) => (
-                  <div className="job" key={job.id}>
-                    <div>
-                      <strong>{job.status}</strong>
-                      <span>
-                        {job.agent ?? 'Preparing'}
-                        {job.attempts > 0 ? ` · attempt ${job.attempts}/3` : ''}
-                      </span>
-                    </div>
-                    <time>
-                      {DateTime.fromISO(job.createdAt).toLocaleString(DateTime.TIME_SIMPLE)}
-                    </time>
-                    {job.fallback && <p>Switched to Claude Code: {job.fallback}</p>}
-                    {job.error && <p className="job-error">{job.error}</p>}
+              {view?.accomplishments.map((item) => (
+                <article className="entry" key={item.id}>
+                  <span className={`state ${item.state}`}>{item.state}</span>
+                  <h3>{item.title}</h3>
+                  <div className="sources">
+                    {item.evidenceIds.map((id) => {
+                      const evidence = view.supportingEvidence.find((record) => record.id === id);
+                      return (
+                        evidence && (
+                          <EvidenceReference
+                            key={id}
+                            item={evidence}
+                            onOpen={setSelectedEvidence}
+                          />
+                        )
+                      );
+                    })}
                   </div>
-                ))
-              ) : (
-                <p className="muted">No collections for this day.</p>
+                </article>
+              ))}
+              {(offset > 0 || view?.hasMore) && (
+                <nav className="pagination" aria-label="Daily record pages">
+                  <button
+                    type="button"
+                    disabled={offset === 0}
+                    onClick={() => setOffset((value) => Math.max(0, value - 100))}
+                  >
+                    Previous
+                  </button>
+                  <span>Page {offset / 100 + 1}</span>
+                  <button
+                    type="button"
+                    disabled={!view?.hasMore}
+                    onClick={() => setOffset((value) => value + 100)}
+                  >
+                    Next
+                  </button>
+                </nav>
               )}
             </section>
-            <section className="side-section">
-              <p className="eyebrow">SOURCE EVIDENCE</p>
-              {view?.evidence.length ? (
-                view.evidence.map((item) =>
-                  item.session ? (
-                    <button
-                      type="button"
-                      className="evidence"
+            <aside>
+              <section className="side-section">
+                <p className="eyebrow">COLLECTION STATUS</p>
+                {status?.configured && (
+                  <div className="queue-summary">
+                    <p>
+                      {status.activeJob
+                        ? `${status.activeJob.kind === 'report' ? 'Preparing report for' : 'Collecting'} ${status.activeJob.day}`
+                        : status.automatic
+                          ? 'Automatic collection is on'
+                          : 'Automatic collection is paused'}
+                    </p>
+                    <p className="muted">
+                      {status.queuedJobs} queued ·{' '}
+                      {status.lastCollectedAt
+                        ? `Last complete: ${DateTime.fromISO(status.lastCollectedAt).toRelative()}`
+                        : 'No complete collection yet'}
+                    </p>
+                    {status.automatic && status.nextAutomaticAt && (
+                      <p className="muted">
+                        Next check {DateTime.fromISO(status.nextAutomaticAt).toRelative()}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {view?.jobs.length ? (
+                  view.jobs.slice(0, 4).map((job) => (
+                    <div className="job" key={job.id}>
+                      <div>
+                        <strong>
+                          {job.kind === 'report' ? 'Report · ' : ''}
+                          {job.status}
+                        </strong>
+                        <span>
+                          {job.agent ?? 'Preparing'}
+                          {job.attempts > 0 ? ` · attempt ${job.attempts}/3` : ''}
+                        </span>
+                      </div>
+                      <time>
+                        {DateTime.fromISO(job.createdAt).toLocaleString(DateTime.TIME_SIMPLE)}
+                      </time>
+                      {job.fallback && <p>Switched to Claude Code: {job.fallback}</p>}
+                      {job.error && <p className="job-error">{job.error}</p>}
+                    </div>
+                  ))
+                ) : (
+                  <p className="muted">No collections for this day.</p>
+                )}
+              </section>
+              <section className="side-section">
+                <p className="eyebrow">SOURCE EVIDENCE</p>
+                {view?.evidence.length ? (
+                  view.evidence.map((item) => (
+                    <EvidenceReference
                       key={item.id}
-                      onClick={() => setSelectedEvidence(item)}
-                    >
-                      <span>
-                        {item.session.provider} · {item.project} ↗
-                      </span>
-                      <p>{item.title}</p>
-                    </button>
-                  ) : (
-                    <a
-                      className="evidence"
-                      key={item.id}
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <span>{item.project} ↗</span>
-                      <p>{item.title}</p>
-                    </a>
-                  ),
-                )
-              ) : (
-                <p className="muted">
-                  Original activity will appear here, with links to GitLab or local session
-                  excerpts.
-                </p>
-              )}
-            </section>
-            <div className="footnote">
-              Stored on this computer.
-              <br />
-              Codex first. Claude Code when needed.
-            </div>
-          </aside>
+                      item={item}
+                      onOpen={setSelectedEvidence}
+                      full
+                    />
+                  ))
+                ) : (
+                  <p className="muted">
+                    Original activity will appear here, with links to GitLab or local session
+                    excerpts.
+                  </p>
+                )}
+              </section>
+              <div className="footnote">
+                Stored on this computer.
+                <br />
+                Codex first. Claude Code when needed.
+              </div>
+            </aside>
+          </div>
         </div>
       </main>
       {selectedEvidence && (

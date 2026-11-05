@@ -108,3 +108,7 @@ export function dayWindow(day: string, timezone: string) {
     end: start.plus({ days: 1 }).startOf('day').toUTC().toJSDate().toISOString(),
   };
 }
+
+export function isDayFinalized(day: string, timezone: string, collectedAt: string): boolean {
+  return Date.parse(collectedAt) >= Date.parse(dayWindow(day, timezone).end);
+}

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { useState } from 'react';
 import type { AppStatus } from '../shared/domain.js';
+import { api } from './api.js';
 
 export function Settings({
   status,
@@ -27,7 +28,7 @@ export function Settings({
     setBusy(true);
     setError('');
     try {
-      const response = await fetch('/api/settings', {
+      const value = await api<AppStatus>('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -39,8 +40,6 @@ export function Settings({
           collectionStartDate: startDate,
         }),
       });
-      const value = await response.json();
-      if (!response.ok) throw new Error(value.error);
       setToken('');
       onSaved(value);
     } catch (error) {
@@ -54,9 +53,7 @@ export function Settings({
     setConnection('');
     setError('');
     try {
-      const response = await fetch('/api/connection', { method: 'POST' });
-      const value = await response.json();
-      if (!response.ok) throw new Error(value.error);
+      const value = await api<{ userId: number }>('/api/connection', { method: 'POST' });
       setConnection(`Connected as GitLab user #${value.userId}.`);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Connection failed.');

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
+import { createReportStore } from '../src/server/report-store.js';
 
 it('serves protected local APIs, saves split UTF-8 settings, and keeps credentials private', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'worklog-http-'));
@@ -85,7 +86,7 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
     fixtureDb
       .prepare('INSERT INTO coverage(day,collectedAt) VALUES(?,?)')
       .run('2026-11-01', '2026-11-02T00:00:00Z');
-    fixtureDb.prepare('INSERT INTO activity(id,day,data) VALUES(?,?,?)').run(
+    fixtureDb.prepare('INSERT INTO activity(id,day,data,scope) VALUES(?,?,?,?)').run(
       'fixture-preserved',
       '2026-11-01',
       JSON.stringify({
@@ -98,7 +99,23 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
         targetType: null,
         targetIid: null,
       }),
+      status.workspaceId,
     );
+    const reportStore = createReportStore(fixtureDb);
+    reportStore.saveDraft({
+      scope: status.workspaceId,
+      jobId: 'fixture-report',
+      id: 'daily:2026-11-01:2026-11-01',
+      kind: 'daily',
+      fromDay: '2026-11-01',
+      toDay: '2026-11-01',
+      draft: { text: 'Fixture draft.', evidenceIds: ['fixture-preserved'] },
+      inputHash: 'fixture',
+      sourceRevision: reportStore.reportSnapshot('2026-11-01', '2026-11-01', 'Asia/Seoul'),
+      warnings: [],
+      agent: 'codex',
+      fallback: null,
+    });
     fixtureDb.close();
     const update = await fetch(url + '/api/settings', {
       method: 'POST',
@@ -112,6 +129,31 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
       input.token,
     );
     expect((await fetch(url + '/api/day?day=not-a-date')).status).toBe(400);
+    const report = await (
+      await fetch(url + '/api/report?kind=daily&fromDay=2026-11-01&toDay=2026-11-01')
+    ).json();
+    expect(report.stale).toBe(true);
+    const text = '업무'.repeat(10000);
+    const edit = { id: report.report.id, text, editVersion: 0, baseDraftVersion: 1 };
+    const savedEdit = await fetch(url + '/api/report/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(edit),
+    });
+    expect(savedEdit.status).toBe(200);
+    expect((await savedEdit.json()).report.edited).toBe(text);
+    const conflict = await fetch(url + '/api/report/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...edit, text: 'stale overwrite' }),
+    });
+    expect(conflict.status).toBe(409);
+    const empty = await fetch(url + '/api/report/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'daily', fromDay: '2026-11-02', toDay: '2026-11-02' }),
+    });
+    expect(empty.status).toBe(400);
   } finally {
     child.kill('SIGTERM');
     await once(child, 'exit');

@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import type { DailyView, Evidence, Job } from '../shared/domain.js';
 import type { CollectionResult } from './agent.js';
 import { StorageFailure } from './errors.js';
+import { createReportStore } from './report-store.js';
 import type { SessionCursor } from './sessions.js';
 
 export function openStore(path: string) {
@@ -34,6 +35,7 @@ export function openStore(path: string) {
       db.prepare('INSERT INTO migrations VALUES(3)').run();
     })();
   }
+  const reports = createReportStore(db);
   db.prepare(
     "UPDATE jobs SET status=CASE WHEN attempts<3 THEN 'queued' ELSE 'failed' END, error='Interrupted by application shutdown; resuming when possible.' WHERE status='running'",
   ).run();
@@ -47,6 +49,7 @@ export function openStore(path: string) {
       "INSERT INTO scheduler_state(key,value) VALUES('backfill_day',?) ON CONFLICT(key) DO UPDATE SET value=MIN(value,excluded.value)",
     ).run(interrupted.day);
   return {
+    ...reports,
     close: () => db.close(),
     sessionCursor(path: string): SessionCursor | undefined {
       const row = db.prepare('SELECT data FROM session_cursors WHERE path=?').get(path) as
@@ -57,21 +60,26 @@ export function openStore(path: string) {
     ingestSession(path: string, cursor: SessionCursor, evidence: Evidence[], timezone: string) {
       db.transaction(() => {
         const insert = db.prepare(
-          'INSERT INTO activity(id,day,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET day=excluded.day,data=excluded.data',
+          'INSERT INTO activity(id,day,data,scope) VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET day=excluded.day,data=excluded.data',
         );
         for (const item of evidence) {
           const day = DateTime.fromISO(item.time).setZone(timezone).toISODate();
           const data = JSON.stringify(item);
-          const old = db.prepare('SELECT day,data FROM activity WHERE id=?').get(item.id) as
-            | { day: string; data: string }
-            | undefined;
+          const old = db
+            .prepare('SELECT day,data FROM activity WHERE id=? AND scope=?')
+            .get(item.id, reports.scope()) as { day: string; data: string } | undefined;
           if (!old || old.data !== data || old.day !== day) {
+            const bump = db.prepare(
+              'INSERT INTO day_revisions(scope,day,revision) VALUES(?,?,1) ON CONFLICT(scope,day) DO UPDATE SET revision=revision+1',
+            );
+            bump.run(reports.scope(), day);
+            if (old && old.day !== day) bump.run(reports.scope(), old.day);
             db.prepare('DELETE FROM coverage WHERE day=? OR day=?').run(day, old?.day ?? day);
             db.prepare(
               "INSERT INTO scheduler_state(key,value) VALUES('backfill_day',?) ON CONFLICT(key) DO UPDATE SET value=MIN(value,excluded.value)",
             ).run(old && old.day < (day ?? '') ? old.day : day);
           }
-          insert.run(item.id, day, data);
+          insert.run(item.id, day, data, reports.scope());
         }
         db.prepare(
           'INSERT INTO session_cursors(path,data) VALUES(?,?) ON CONFLICT(path) DO UPDATE SET data=excluded.data',
@@ -81,17 +89,17 @@ export function openStore(path: string) {
     sessionEvidence(day: string, workRoot: string): Evidence[] {
       const rows = db
         .prepare(
-          "SELECT data FROM activity WHERE day=? AND id LIKE 'session:%' AND json_extract(data,'$.session.workRoot')=? ORDER BY json_extract(data,'$.time') LIMIT 5001",
+          "SELECT data FROM activity WHERE day=? AND scope=? AND id LIKE 'session:%' AND json_extract(data,'$.session.workRoot')=? ORDER BY json_extract(data,'$.time') LIMIT 5001",
         )
-        .all(day, workRoot) as { data: string }[];
+        .all(day, reports.scope(), workRoot) as { data: string }[];
       if (rows.length > 5000)
         throw new Error(
           'This day has more than 5,000 session messages; reduce session scope before synthesis.',
         );
       return rows.map((row) => JSON.parse(row.data) as Evidence);
     },
-    evidence(id: string): Evidence | undefined {
-      const row = db.prepare('SELECT data FROM activity WHERE id=?').get(id) as
+    evidence(id: string, scope = reports.scope()): Evidence | undefined {
+      const row = db.prepare('SELECT data FROM activity WHERE id=? AND scope=?').get(id, scope) as
         | { data: string }
         | undefined;
       return row ? (JSON.parse(row.data) as Evidence) : undefined;
@@ -119,10 +127,14 @@ export function openStore(path: string) {
     ) {
       const existing = db
         .prepare(
-          "SELECT id FROM jobs WHERE day=? AND kind=? AND status IN ('queued','running') LIMIT 1",
+          "SELECT id,status FROM jobs WHERE day=? AND kind=? AND json_extract(payload,'$.reportId') IS json_extract(?,'$.reportId') AND status IN ('queued','running') LIMIT 1",
         )
-        .get(day, kind) as { id: string } | undefined;
-      if (existing) return existing.id;
+        .get(day, kind, payload) as { id: string; status: string } | undefined;
+      if (existing) {
+        if (kind === 'report' && existing.status === 'queued' && JSON.parse(payload).force)
+          db.prepare('UPDATE jobs SET payload=? WHERE id=?').run(payload, existing.id);
+        return existing.id;
+      }
       db.prepare(
         'INSERT INTO jobs(id,day,status,createdAt,kind,payload,nextRunAt) VALUES(?,?,?,?,?,?,?)',
       ).run(id, day, 'queued', now, kind, payload, now);
@@ -132,7 +144,7 @@ export function openStore(path: string) {
       return db.transaction(() => {
         const job = db
           .prepare(
-            "SELECT * FROM jobs WHERE status='queued' AND (nextRunAt IS NULL OR nextRunAt<=?) ORDER BY createdAt,rowid LIMIT 1",
+            "SELECT * FROM jobs WHERE status='queued' AND (nextRunAt IS NULL OR nextRunAt<=?) ORDER BY CASE WHEN kind='report' THEN 0 ELSE 1 END,createdAt,rowid LIMIT 1",
           )
           .get(now) as Job | undefined;
         if (!job) return undefined;
@@ -198,13 +210,40 @@ export function openStore(path: string) {
     commit(id: string, day: string, result: CollectionResult) {
       db.transaction(() => {
         const insert = db.prepare(
-          'INSERT INTO activity(id,day,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET day=excluded.day, data=excluded.data',
+          'INSERT INTO activity(id,day,data,scope) VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET day=excluded.day, data=excluded.data',
         );
-        for (const item of result.audit.evidence) insert.run(item.id, day, JSON.stringify(item));
-        db.prepare('DELETE FROM accomplishments WHERE day=?').run(day);
-        const accomplishment = db.prepare('INSERT INTO accomplishments(day,data) VALUES(?,?)');
-        for (const item of result.result.accomplishments)
-          accomplishment.run(day, JSON.stringify(item));
+        for (const item of result.audit.evidence) {
+          const value = JSON.stringify(item);
+          const old = db
+            .prepare('SELECT data FROM activity WHERE id=? AND scope=?')
+            .get(item.id, reports.scope()) as { data: string } | undefined;
+          if (old?.data !== value)
+            db.prepare(
+              'INSERT INTO day_revisions(scope,day,revision) VALUES(?,?,1) ON CONFLICT(scope,day) DO UPDATE SET revision=revision+1',
+            ).run(reports.scope(), day);
+          insert.run(item.id, day, value, reports.scope());
+        }
+        const previous = (
+          db
+            .prepare('SELECT data FROM accomplishments WHERE day=? AND scope=? ORDER BY id')
+            .all(day, reports.scope()) as {
+            data: string;
+          }[]
+        ).map((row) => JSON.parse(row.data));
+        if (JSON.stringify(previous) !== JSON.stringify(result.result.accomplishments)) {
+          db.prepare('DELETE FROM accomplishments WHERE day=? AND scope=?').run(
+            day,
+            reports.scope(),
+          );
+          const accomplishment = db.prepare(
+            'INSERT INTO accomplishments(day,data,scope) VALUES(?,?,?)',
+          );
+          for (const item of result.result.accomplishments)
+            accomplishment.run(day, JSON.stringify(item), reports.scope());
+          db.prepare(
+            'INSERT INTO day_revisions(scope,day,revision) VALUES(?,?,1) ON CONFLICT(scope,day) DO UPDATE SET revision=revision+1',
+          ).run(reports.scope(), day);
+        }
         if (result.warning)
           db.prepare(
             "INSERT INTO scheduler_state(key,value) VALUES('backfill_day',?) ON CONFLICT(key) DO UPDATE SET value=MIN(value,excluded.value)",
@@ -230,18 +269,20 @@ export function openStore(path: string) {
         | { collectedAt: string }
         | undefined;
     },
-    daily(day: string, offset = 0): DailyView {
+    daily(day: string, offset = 0, scope = reports.scope()): DailyView {
       const evidence = (
         db
           .prepare(
-            "SELECT data FROM activity WHERE day=? ORDER BY json_extract(data,'$.time') DESC, id LIMIT 101 OFFSET ?",
+            "SELECT data FROM activity WHERE day=? AND scope=? ORDER BY json_extract(data,'$.time') DESC, id LIMIT 101 OFFSET ?",
           )
-          .all(day, offset) as { data: string }[]
+          .all(day, scope, offset) as { data: string }[]
       ).map((row) => JSON.parse(row.data) as Evidence);
       const accomplishments = (
         db
-          .prepare('SELECT id,data FROM accomplishments WHERE day=? ORDER BY id LIMIT 101 OFFSET ?')
-          .all(day, offset) as { id: number; data: string }[]
+          .prepare(
+            'SELECT id,data FROM accomplishments WHERE day=? AND scope=? ORDER BY id LIMIT 101 OFFSET ?',
+          )
+          .all(day, scope, offset) as { id: number; data: string }[]
       ).map((row) => ({ ...JSON.parse(row.data), id: row.id }));
       const jobs = db
         .prepare('SELECT * FROM jobs WHERE day=? ORDER BY createdAt DESC LIMIT 20')
@@ -249,16 +290,16 @@ export function openStore(path: string) {
       const hasMore = evidence.length > 100 || accomplishments.length > 100;
       const page = accomplishments.slice(0, 100);
       const ids = new Set(page.flatMap((item) => item.evidenceIds));
-      const find = db.prepare('SELECT data FROM activity WHERE id=?');
+      const find = db.prepare('SELECT data FROM activity WHERE id=? AND scope=?');
       const supportingEvidence = [...ids].flatMap((id) => {
-        const row = find.get(id) as { data: string } | undefined;
+        const row = find.get(id, scope) as { data: string } | undefined;
         return row ? [JSON.parse(row.data) as Evidence] : [];
       });
       return {
         evidence: evidence.slice(0, 100),
         supportingEvidence,
         accomplishments: page,
-        jobs,
+        jobs: scope === reports.scope() ? jobs : [],
         hasMore,
       };
     },

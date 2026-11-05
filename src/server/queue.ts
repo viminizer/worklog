@@ -1,16 +1,30 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { Job } from '../shared/domain.js';
-import type { AppConfig } from './config.js';
+import { type AppConfig, isDayFinalized } from './config.js';
 import { message } from './errors.js';
 import type { StoreApi } from './store.js';
 
+export function dataScope(config: AppConfig): string {
+  return createHash('sha256')
+    .update(JSON.stringify([config.workRoot, config.gitlabUrl]))
+    .digest('hex');
+}
 export function syncSourceScope(store: StoreApi, config: AppConfig) {
   const scope = createHash('sha256')
     .update(JSON.stringify([config.workRoot, config.gitlabUrl, config.timezone, config.token]))
     .digest('hex');
   const previous = store.state('source_scope');
-  if (previous !== scope) {
+  const workspace = dataScope(config);
+  if (previous !== scope || store.scope() !== workspace) {
+    store.registerWorkspace({
+      id: workspace,
+      workRoot: config.workRoot,
+      gitlabUrl: config.gitlabUrl,
+      timezone: config.timezone,
+      lastUsedAt: new Date().toISOString(),
+    });
+    store.setState('data_scope', workspace);
     store.invalidateCoverage();
     if (previous !== null) store.cancelQueued();
     store.setState('source_scope', scope);
@@ -45,11 +59,7 @@ export function schedule(store: StoreApi, config: AppConfig, now: number) {
   if (cursor < start) cursor = start;
   for (let count = 0; count < 7 && cursor < day && store.queueCount() < 10; count++) {
     const coverage = store.coverage(cursor);
-    const end = DateTime.fromISO(cursor, { zone: config.timezone })
-      .plus({ days: 1 })
-      .startOf('day')
-      .toMillis();
-    if (!coverage || Date.parse(coverage.collectedAt) < end)
+    if (!coverage || !isDayFinalized(cursor, config.timezone, coverage.collectedAt))
       store.enqueue(randomUUID(), cursor, 'collect', '{}', new Date(now).toISOString());
     cursor = DateTime.fromISO(cursor, { zone: config.timezone })
       .plus({ days: 1 })

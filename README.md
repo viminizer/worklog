@@ -6,7 +6,7 @@ Claude Code takes over automatically if Codex fails.
 
 ## Requirements
 
-- Node.js 22.12 or newer, npm, and Git.
+- macOS or Linux, Node.js 22.12 or newer, npm, and Git.
 - Codex and Claude Code installed on PATH and authenticated independently.
 - Access to your company's GitLab and a personal token with `read_api` access.
 - Local project checkouts beneath one work folder.
@@ -59,7 +59,7 @@ write to GitLab.
 
 GitLab collection uses its Events API. It includes supported push, merge
 request, issue, and discussion events; it is not a complete audit trail of every
-GitLab interaction. Report editing and weekly reports are subsequent implementation phases.
+GitLab interaction. Daily and weekly reports use the stored record and can be generated even when GitLab is currently unreachable.
 
 ## Agent behavior
 
@@ -70,7 +70,7 @@ tools or session persistence. Both retain their own existing CLI authentication.
 If Codex fails, times out, or returns invalid or incomplete results, Worklog tries
 Claude Code once. GitLab access failures are reported without switching agents.
 If both agents fail, the previous daily record remains intact. No checkpoint is
-advanced for a failed collection. Interrupted jobs are marked failed on restart.
+advanced for a failed collection. Interrupted jobs resume on restart within their attempt budget.
 
 Records stay on this computer. Selected source content is processed by the configured
 agent providers; use your company's approved configurations. Credentials, transcripts,
@@ -116,7 +116,7 @@ An AI session is evidence of discussion or attempted work, not proof of completi
 
 Offsets and selected evidence are committed together per session file. Appended
 messages are read next time; incomplete trailing JSON is retained until complete.
-Replacing or truncating files resets reading without discarding existing evidence.
+Replacing or truncating files resets reading within the same workspace without discarding existing evidence. Files that cross a workspace boundary retain an isolation barrier; if their consumed contents change, start a new coding session as indicated by the source warning.
 Worklog's automated agents use ephemeral/nonpersistent sessions in temporary folders
 outside the work root, preventing self-collection.
 
@@ -154,3 +154,47 @@ A historical day is finalized only by collection after that day ends in the conf
 timezone. New session evidence invalidates affected dates for catch-up. Changing the
 work root, GitLab instance, token, or timezone clears completeness markers while
 preserving stored records, so historical dates are checked against the new sources.
+
+## Reports and editing
+
+Open **Reports** to read today's daily summary or select **Weekly report** and a
+range. Ranges are inclusive and can span 1–31 days; future dates are excluded.
+Reports draw on organized accomplishments and their source evidence. When a day
+has not been organized successfully, the available raw record is included instead.
+Missing or unfinalized source coverage is displayed explicitly.
+
+Each collection attempt with stored activity queues a daily draft. Automatic report
+jobs skip regeneration when their input is unchanged. **Generate new draft** always
+requests a fresh version. Both tasks use Codex first and automatically fall back to
+Claude Code on agent failure. Source records are read locally for reporting; reports
+do not need another GitLab collection.
+
+Edit the text and click **Save edits**. Generated drafts and your saved version are
+separate: new drafts never replace saved edits, including an intentionally empty
+version. A newer draft remains available through **View latest AI draft** and
+**Use latest draft**. Source links open GitLab or the stored session excerpt.
+
+Unsaved text stays in memory when switching ranges or views, and the page warns
+before leaving with unsaved changes. It is durable only after **Save edits**.
+Conflicting saves from another tab are rejected while preserving your working text.
+**Copy report** copies the current editor contents; if clipboard permission is
+unavailable, it selects the text for manual copying. Nothing is posted to Slack,
+GitLab, or another service automatically.
+
+Activity or interpretation changes mark existing reports stale. Your saved text
+remains accessible while you generate and review a new draft. Draft revisions are
+retained in SQLite; changing settings does not delete reports or work history.
+
+Changing the work folder or GitLab instance starts a separate workspace. Use
+**History** to browse previous records and edit or copy saved reports. Archived
+records are excluded from current collection and report generation. Existing data
+from older versions appears as **Imported history**. Previously read session messages
+remain in their original workspace; only newly appended messages enter the new one.
+Today's reports explicitly state that the day is still in progress.
+
+## Verification
+
+`npm test` uses temporary databases, synthetic source files, mocked GitLab responses,
+and fake CLI subprocesses. It does not need GitLab or model credentials. GitHub Actions
+runs lint, typecheck, tests, and a production build on every main push and pull request.
+Real Codex/Claude and company-network smoke checks are separate from these tests.

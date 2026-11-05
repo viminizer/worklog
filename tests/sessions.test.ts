@@ -230,3 +230,24 @@ it('reads complete metadata larger than128KB without silently losing sessions', 
   expect(result.warnings).toEqual([]);
   expect(result.records).toBe(1);
 });
+
+it('does not replay an already collected session prefix into another workspace', async () => {
+  const options = await fixture();
+  const file = join(options.codexDir, 'one.jsonl');
+  options.store.setState('data_scope', 'old');
+  await writeFile(file, jsonl(header(options.workRoot), codexMessage('Old workspace text.')));
+  await ingestSessions(options);
+  options.store.setState('data_scope', 'new');
+  await appendFile(file, jsonl(codexMessage('New workspace text.')));
+  await ingestSessions(options);
+  expect(options.store.daily('2026-11-05').evidence.map((item) => item.title)).toEqual([
+    'New workspace text.',
+  ]);
+  await ingestSessions({ ...options, timezone: 'UTC' });
+  expect(options.store.daily('2026-11-04').evidence.map((item) => item.title)).toEqual([
+    'New workspace text.',
+  ]);
+  expect(options.store.daily('2026-11-05', 0, 'old').evidence.map((item) => item.title)).toEqual([
+    'Old workspace text.',
+  ]);
+});

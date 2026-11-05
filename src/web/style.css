@@ -510,3 +510,164 @@ dialog pre {
     display: none;
   }
 }
+
+.view-tabs {
+  display: flex;
+  gap: 24px;
+  margin-top: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.view-tabs button {
+  background: none;
+  color: var(--muted);
+  border-radius: 0;
+  padding: 12px 0;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+}
+.view-tabs button[aria-pressed="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.report-pane {
+  padding-top: 32px;
+}
+.report-controls {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+.report-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.report-controls select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 10px;
+  background: transparent;
+  border-radius: 3px;
+}
+.report-notice {
+  font-size: 13px;
+  color: var(--accent);
+}
+.coverage {
+  background: #efe7d6;
+  border-color: #d7c8aa;
+}
+.editor-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  align-items: center;
+  margin: 26px 0 12px;
+}
+.editor-heading span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.report-editor {
+  display: block;
+  width: 100%;
+  min-height: 360px;
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #faf9f3;
+  color: var(--ink);
+  font:
+    15px / 1.9 "Avenir Next",
+    Avenir,
+    sans-serif;
+  resize: vertical;
+}
+.editor-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.editor-actions span {
+  margin-left: auto;
+}
+.draft-preview {
+  margin: 30px 0;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.draft-preview summary {
+  cursor: pointer;
+}
+.draft-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px / 1.8 "Avenir Next",
+    sans-serif;
+}
+.report-sources {
+  margin: 30px 0;
+}
+.report-sources .sources {
+  gap: 14px;
+}
+@media (max-width: 760px) {
+  .report-pane > .section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+  .report-controls {
+    gap: 12px;
+  }
+  .report-controls input {
+    min-width: 0;
+    max-width: 160px;
+  }
+  .report-editor {
+    padding: 16px;
+    min-height: 300px;
+    font-size: 14px;
+  }
+  .editor-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .editor-actions span {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+.configured .intro {
+  padding: 28px 0 24px;
+}
+.configured h1 {
+  font-size: 38px;
+  letter-spacing: -1px;
+}
+.configured .lede {
+  margin-top: 12px;
+}
+
+.workspace-picker {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+}
+.workspace-picker select {
+  width: 100%;
+  max-width: 42rem;
+}
