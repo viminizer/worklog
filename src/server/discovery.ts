@@ -40,8 +40,8 @@ export async function discoverRepositories(root: string): Promise<Project[]> {
       );
     });
     if (entries.some((entry) => entry.name === '.git')) {
-      if (repositories.length >= 200)
-        throw new Error('More than 200 repositories; choose a narrower work folder.');
+      if (repositories.length >= 1000)
+        throw new Error('More than 1,000 checkouts; choose a narrower work folder.');
       repositories.push({ path: relative(root, directory) || '.', checkout: directory });
     }
     for (const entry of entries)

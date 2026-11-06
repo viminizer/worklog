@@ -68,6 +68,24 @@ export interface ReportResponse {
 export interface Project {
   path: string;
   checkout: string;
+  id?: string;
+  members?: string[];
+  authorEmails?: string[];
+}
+export interface RepositoryCheckout {
+  path: string;
+  checkout: string;
+  commonDir?: string;
+  gitDir?: string;
+  authorEmail?: string;
+  error?: string;
+}
+export interface RepositoryGroup extends Project {
+  id: string;
+  members: string[];
+  authorEmails: string[];
+  checkouts: RepositoryCheckout[];
+  commonDir?: string;
 }
 export interface Evidence {
   id: string;
@@ -77,6 +95,7 @@ export interface Evidence {
   title: string;
   url: string;
   excerpt?: string;
+  canonicalId?: string;
   localGit?: { checkout: string; commit: string; authorEmail: string; inspected?: boolean };
   push?: { from: string | null; to: string; count: number | null; ref: string | null };
   session?: {

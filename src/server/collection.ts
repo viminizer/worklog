@@ -3,9 +3,10 @@ import { Effect } from 'effect';
 import type { Project } from '../shared/domain.js';
 import { AgentRunner } from './agent.js';
 import { type AppConfig, configPath, dayWindow } from './config.js';
-import { discoverProjects, discoverRepositories } from './discovery.js';
+import { discoverProjects } from './discovery.js';
 import { message, SourceFailure, StorageFailure } from './errors.js';
 import { GitLab } from './gitlab.js';
+import { discoverRepositoryGroups } from './repository-groups.js';
 import { ingestSessions } from './sessions.js';
 import { Store } from './store.js';
 
@@ -41,9 +42,17 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
             .join(' · ')
             .slice(0, 2000) || undefined;
     const repositories = yield* Effect.tryPromise({
-      try: () => discoverRepositories(config.workRoot),
+      try: () => discoverRepositoryGroups(config.workRoot),
       catch: (error) => new SourceFailure({ message: message(error) }),
     });
+    const memberWarnings = repositories.flatMap((group) =>
+      group.authorEmails.length
+        ? group.checkouts
+            .filter((checkout) => checkout.error)
+            .map((checkout) => `${checkout.path}: ${checkout.error}`)
+        : [],
+    );
+    store.reconcileRepositories(repositories);
     let remoteWarning: string | undefined;
     let projects: Project[] = [];
     if (config.remoteCollection && config.gitlabUrl) {
@@ -115,7 +124,7 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
         store.commit(id, day, {
           ...result,
           warning:
-            [warning, remoteWarning, ...(result.audit.warnings ?? [])]
+            [warning, remoteWarning, ...memberWarnings, ...(result.audit.warnings ?? [])]
               .filter(Boolean)
               .join(' · ')
               .slice(0, 4000) || undefined,

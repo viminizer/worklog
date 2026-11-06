@@ -68,7 +68,12 @@ authorship. Inspected commit context is retained with the source evidence. Daily
 
 ## Local repository collection
 
-The agent reads commits across refs already present in each checkout and can inspect
+Worktrees sharing a Git common directory are grouped as one project. Collection reads
+all existing refs once and includes configured author emails from the valid member
+checkouts. Broken checkouts remain visible; Worklog never prunes or deletes them.
+Existing citations remain accessible when duplicate commit evidence is grouped.
+
+The agent reads commits across refs already present in each repository and can inspect
 commit summaries and changed-file statistics. No remote is required. It never runs
 fetch, pull, push, or writes to repositories. Commits are attributed by each
 repository's effective `git config user.email` and grouped by commit time in your

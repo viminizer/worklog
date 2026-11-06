@@ -159,6 +159,21 @@ export function createReportStore(db: Database.Database) {
         warnings: warnings(fromDay, toDay, timezone, scope),
       };
       const evidence = new Map<string, Evidence>();
+      const resolveEvidence = (id: string): Evidence | undefined => {
+        const row = db.prepare('SELECT data FROM activity WHERE id=? AND scope=?').get(id, scope) as
+          | { data: string }
+          | undefined;
+        if (!row) return;
+        const item = JSON.parse(row.data) as Evidence;
+        if (item.canonicalId) {
+          const canonical = db
+            .prepare('SELECT data FROM activity WHERE id=? AND scope=?')
+            .get(item.canonicalId, scope) as { data: string } | undefined;
+          if (canonical) return JSON.parse(canonical.data) as Evidence;
+        }
+        return item;
+      };
+
       for (
         let date = DateTime.fromISO(fromDay, { zone: timezone });
         date.toFormat('yyyy-MM-dd') <= toDay;
@@ -176,6 +191,10 @@ export function createReportStore(db: Database.Database) {
           ...(JSON.parse(row.data) as AgentResult['accomplishments'][number]),
           day,
         }));
+        for (const item of accomplishments)
+          item.evidenceIds = [
+            ...new Set(item.evidenceIds.map((id) => resolveEvidence(id)?.id ?? id)),
+          ];
         result.accomplishments.push(...accomplishments);
         const coverage = db.prepare('SELECT collectedAt FROM coverage WHERE day=?').get(day) as
           | { collectedAt: string }
@@ -186,15 +205,16 @@ export function createReportStore(db: Database.Database) {
           )
           .get(day) as { status: string } | undefined;
         if (accomplishments.length && coverage && latest?.status === 'succeeded') {
-          const find = db.prepare('SELECT data FROM activity WHERE id=? AND scope=?');
           for (const item of accomplishments)
             for (const id of item.evidenceIds) {
-              const source = find.get(id, scope) as { data: string } | undefined;
-              if (source) evidence.set(id, JSON.parse(source.data));
+              const source = resolveEvidence(id);
+              if (source) evidence.set(source.id, source);
             }
         } else {
           const sources = db
-            .prepare('SELECT data FROM activity WHERE day=? AND scope=? ORDER BY id LIMIT 5001')
+            .prepare(
+              "SELECT data FROM activity WHERE day=? AND scope=? AND json_extract(data,'$.canonicalId') IS NULL ORDER BY id LIMIT 5001",
+            )
             .all(day, scope) as { data: string }[];
           if (sources.length > 5000)
             throw new Error(

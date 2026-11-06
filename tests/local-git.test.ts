@@ -8,7 +8,8 @@ import { AgentRunner } from '../src/server/agent.js';
 import { collectDay } from '../src/server/collection.js';
 import { discoverRepositories } from '../src/server/discovery.js';
 import { AgentFailure } from '../src/server/errors.js';
-import { repositoryActivity, repositoryDetail } from '../src/server/local-git.js';
+import { localCommitId, repositoryActivity, repositoryDetail } from '../src/server/local-git.js';
+import { discoverRepositoryGroups } from '../src/server/repository-groups.js';
 import { openStore, Store } from '../src/server/store.js';
 
 const paths: string[] = [];
@@ -106,6 +107,10 @@ it('preserves healthy local evidence and visible partial status when optional Gi
   await writeFile(join(root, 'file.txt'), 'Local work');
   git(root, 'add', 'file.txt');
   git(root, 'commit', '-qm', 'Implement local validation');
+  const branch = join(root, 'branch');
+  git(root, 'worktree', 'add', '-qb', 'fixture-branch', branch);
+  git(root, 'config', 'extensions.worktreeConfig', 'true');
+  git(branch, 'config', '--worktree', 'user.email', '');
   const empty = join(root, 'sessions');
   await mkdir(empty);
   vi.stubEnv('WORKLOG_CODEX_SESSIONS_DIR', empty);
@@ -163,10 +168,122 @@ it('preserves healthy local evidence and visible partial status when optional Gi
     expect(store.daily('2026-11-05').evidence).toHaveLength(1);
     expect(store.daily('2026-11-05').jobs[0]?.status).toBe('partial');
     expect(store.daily('2026-11-05').jobs[0]?.error).toContain('401');
+    expect(store.daily('2026-11-05').jobs[0]?.error).toContain('user.email');
     expect(store.coverage('2026-11-05')).toBeUndefined();
   } finally {
     store.close();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  }
+});
+
+it('groups worktrees by common Git directory and includes branches and worktree-specific author identities once', async () => {
+  const root = await fixture();
+  const main = join(root, 'main');
+  const branch = join(root, 'branch');
+  await mkdir(main);
+  git(main, 'init', '-q');
+  git(main, 'config', 'user.email', 'owner@example.test');
+  git(main, 'config', 'user.name', 'Owner');
+  await writeFile(join(main, 'a.txt'), 'main change');
+  git(main, 'add', 'a.txt');
+  git(main, 'commit', '-qm', 'Main work');
+  git(main, 'worktree', 'add', '-qb', 'feature', branch);
+  git(main, 'config', 'extensions.worktreeConfig', 'true');
+  git(branch, 'config', '--worktree', 'user.email', 'alternate@example.test');
+  await writeFile(join(branch, 'b.txt'), 'branch change');
+  git(branch, 'add', 'b.txt');
+  git(branch, 'commit', '-qm', 'Branch work');
+  const groups = await discoverRepositoryGroups(root);
+  expect(groups).toHaveLength(1);
+  expect(groups[0]?.checkout).toBe(main);
+  expect(groups[0]?.members).toHaveLength(2);
+  expect(groups[0]?.authorEmails.sort()).toEqual(['alternate@example.test', 'owner@example.test']);
+  const records = await repositoryActivity(
+    root,
+    groups[0]!,
+    '2026-11-05T00:00:00Z',
+    '2026-11-06T00:00:00Z',
+  );
+  expect(records).toHaveLength(2);
+  expect(new Set(records.map((item) => item.id)).size).toBe(2);
+  const broken = join(root, 'broken');
+  await mkdir(broken);
+  await writeFile(join(broken, '.git'), 'gitdir: /nonexistent-worklog-fixture\n');
+  const withBroken = await discoverRepositoryGroups(root);
+  expect(withBroken).toHaveLength(2);
+  expect(withBroken.find((group) => group.path === 'broken')?.checkouts[0]?.error).toContain(
+    'metadata',
+  );
+});
+it('deduplicates previously collected worktree commits without deleting old citations or re-churning snapshots', () => {
+  const store = openStore(':memory:');
+  const commit = 'a'.repeat(40);
+  const main = '/fixture/main';
+  const branch = '/fixture/branch';
+  const other = '/fixture/other';
+  const record = {
+    id: 'old-branch',
+    project: 'branch',
+    time: '2026-11-05T12:00:00Z',
+    action: 'committed',
+    title: 'Implemented validation',
+    excerpt: 'Inspected commit detail',
+    url: '/api/evidence',
+    targetType: 'local-commit',
+    targetIid: null,
+    localGit: { checkout: branch, commit, authorEmail: 'owner@example.test', inspected: true },
+  };
+  try {
+    const mainRecord = {
+      ...record,
+      id: localCommitId(main, commit),
+      project: 'main',
+      excerpt: 'Basic commit',
+      localGit: { ...record.localGit, checkout: main, inspected: false },
+    };
+    const otherRecord = {
+      ...record,
+      id: 'old-other',
+      url: '/api/evidence?id=old-other',
+      excerpt: 'Other inspected representation',
+      localGit: { ...record.localGit, checkout: other },
+    };
+    store.enqueue('old', '2026-11-05');
+    store.commit('old', '2026-11-05', {
+      result: {
+        accomplishments: [
+          {
+            title: record.title,
+            state: 'completed',
+            evidenceIds: [record.id, mainRecord.id, otherRecord.id],
+          },
+        ],
+      },
+      audit: { covered: [], evidence: [record, mainRecord, otherRecord] },
+      agent: 'codex',
+      fallback: null,
+    });
+    expect(store.evidencePage('2026-11-05').total).toBe(3);
+    const group = { path: 'main', checkout: main, members: [main, branch, other] };
+    store.setState('backfill_day', '2026-11-06');
+    store.reconcileRepositories([group]);
+    expect(store.state('backfill_day')).toBe('2026-11-05');
+    const canonical = store.evidencePage('2026-11-05').items[0];
+    expect(store.evidencePage('2026-11-05').total).toBe(1);
+    expect(canonical?.id).not.toBe(record.id);
+    expect(canonical?.project).toBe('main');
+    expect(store.evidence(record.id)?.canonicalId).toBe(canonical?.id);
+    expect(store.daily('2026-11-05').supportingEvidence[0]?.id).toBe(record.id);
+    const material = store.reportMaterial('2026-11-05', '2026-11-05', 'UTC');
+    expect(material.accomplishments[0]?.evidenceIds).toEqual([canonical?.id]);
+    expect(material.evidence.map((item) => item.id)).toEqual([canonical?.id]);
+    const snapshot = store.reportSnapshot('2026-11-05', '2026-11-05', 'UTC');
+    store.setState('backfill_day', '2026-11-06');
+    store.reconcileRepositories([group]);
+    expect(store.reportSnapshot('2026-11-05', '2026-11-05', 'UTC')).toBe(snapshot);
+    expect(store.state('backfill_day')).toBe('2026-11-06');
+  } finally {
+    store.close();
   }
 });

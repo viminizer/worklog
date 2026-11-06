@@ -7,8 +7,14 @@ import type { Evidence, Project } from '../shared/domain.js';
 import { SourceFailure } from './errors.js';
 
 const exec = promisify(execFile);
-async function git(checkout: string, args: string[]) {
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
+export async function readGit(checkout: string, args: string[]) {
+  const env = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_ALLOW_PROTOCOL: '',
+  };
   for (const key of [
     'GIT_DIR',
     'GIT_WORK_TREE',
@@ -64,26 +70,31 @@ export async function repositoryActivity(
     new SourceFailure({
       message: `${repository.path}: Git author email is missing. Run git -C ${quotedCheckout} config user.email "you@company.com", then collect again.`,
     });
-  let email: string;
-  try {
-    email = (await git(checkout, ['config', '--get', 'user.email'])).trim();
-  } catch (error) {
-    if (error instanceof SourceFailure) throw error;
-    if ((error as { code?: number }).code === 1) throw missingAuthor();
-    throw new SourceFailure({
-      message: `${repository.path}: Cannot read Git author configuration. Check checkout ownership, permissions, and Git configuration, then collect again.`,
-    });
+  let emails = repository.authorEmails?.filter(Boolean) ?? [];
+  if (!emails.length) {
+    let email: string;
+    try {
+      email = (await readGit(checkout, ['config', '--get', 'user.email'])).trim();
+    } catch (error) {
+      if (error instanceof SourceFailure) throw error;
+      if ((error as { code?: number }).code === 1) throw missingAuthor();
+      throw new SourceFailure({
+        message: `${repository.path}: Cannot read Git author configuration. Check checkout ownership, permissions, and Git configuration, then collect again.`,
+      });
+    }
+    if (!email) throw missingAuthor();
+    emails = [email];
   }
-  if (!email) throw missingAuthor();
+  const identities = new Set(emails.map((email) => email.toLowerCase()));
   let output: string;
   try {
-    output = await git(checkout, [
+    output = await readGit(checkout, [
       'log',
       '--all',
       `--since-as-filter=${start}`,
       `--until=${end}`,
       '--fixed-strings',
-      `--author=<${email}>`,
+      ...emails.map((email) => `--author=<${email}>`),
       '--regexp-ignore-case',
       '--max-count=1001',
       '-z',
@@ -104,7 +115,6 @@ export async function repositoryActivity(
       message: `${repository.path}: More than 1,000 commits in this date range; narrow the collection scope.`,
     });
   const records: Evidence[] = [];
-  const repositoryId = createHash('sha256').update(checkout).digest('hex').slice(0, 24);
   for (let i = 0; i < fields.length; i += 6) {
     const [commit, authorEmail, author, time, title, body] = fields.slice(i, i + 6) as [
       string,
@@ -119,12 +129,12 @@ export async function repositoryActivity(
         message: `${repository.path}: Git returned invalid commit metadata.`,
       });
     if (
-      authorEmail.toLowerCase() !== email.toLowerCase() ||
+      !identities.has(authorEmail.toLowerCase()) ||
       Date.parse(time) < Date.parse(start) ||
       Date.parse(time) >= Date.parse(end)
     )
       continue;
-    const id = `git:${repositoryId}:${commit}`;
+    const id = localCommitId(checkout, commit);
     records.push({
       id,
       project: repository.path,
@@ -146,7 +156,7 @@ export async function repositoryDetail(root: string, item: Evidence): Promise<st
     throw new SourceFailure({ message: 'Local commit is unavailable.' });
   const checkout = await scoped(root, { path: item.project, checkout: local.checkout });
   try {
-    const value = await git(checkout, [
+    const value = await readGit(checkout, [
       'show',
       '--no-ext-diff',
       '--no-textconv',
@@ -163,4 +173,8 @@ export async function repositoryDetail(root: string, item: Evidence): Promise<st
       message: `${item.project}: Cannot inspect commit ${local.commit.slice(0, 12)}. Check the checkout and retry.`,
     });
   }
+}
+
+export function localCommitId(checkout: string, commit: string) {
+  return `git:${createHash('sha256').update(checkout).digest('hex').slice(0, 24)}:${commit}`;
 }

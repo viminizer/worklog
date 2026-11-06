@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3';
 import { Context, Effect, Layer } from 'effect';
 import { DateTime } from 'luxon';
-import type { DailyView, Evidence, Job } from '../shared/domain.js';
+import type { DailyView, Evidence, Job, Project } from '../shared/domain.js';
 import type { CollectionResult } from './agent.js';
 import { StorageFailure } from './errors.js';
 import { retainEvidenceContext } from './evidence.js';
+import { localCommitId } from './local-git.js';
 import { createReportStore } from './report-store.js';
 import type { SessionCursor } from './sessions.js';
 
@@ -208,6 +209,69 @@ export function openStore(path: string) {
     fail(id: string, error: string) {
       db.prepare("UPDATE jobs SET status='failed', error=? WHERE id=?").run(error, id);
     },
+    reconcileRepositories(groups: Project[]) {
+      db.transaction(() => {
+        const changedDays = new Set<string>();
+        for (const group of groups) {
+          const members = group.members ?? [group.checkout];
+          for (const checkout of members) {
+            const rows = db
+              .prepare(
+                "SELECT id,day,data FROM activity WHERE scope=? AND json_extract(data,'$.localGit.checkout')=?",
+              )
+              .all(reports.scope(), checkout) as { id: string; day: string; data: string }[];
+            for (const row of rows) {
+              const item = JSON.parse(row.data) as Evidence;
+              if (!item.localGit) continue;
+              const id = localCommitId(group.checkout, item.localGit.commit);
+              const existing = db
+                .prepare('SELECT data FROM activity WHERE scope=? AND id=?')
+                .get(reports.scope(), id) as { data: string } | undefined;
+              const previous = existing ? (JSON.parse(existing.data) as Evidence) : undefined;
+              const base =
+                previous?.localGit && (previous.localGit.inspected || !item.localGit.inspected)
+                  ? previous
+                  : item;
+              const canonical: Evidence = {
+                ...base,
+                id,
+                project: group.path,
+                url: `/api/evidence?id=${encodeURIComponent(id)}`,
+                localGit: { ...(base.localGit ?? item.localGit), checkout: group.checkout },
+              };
+              delete canonical.canonicalId;
+              const value = JSON.stringify(canonical);
+              if (existing?.data !== value) {
+                db.prepare(
+                  'INSERT INTO activity(id,day,data,scope) VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data',
+                ).run(id, row.day, value, reports.scope());
+                changedDays.add(row.day);
+              }
+              if (row.id !== id) {
+                const alias = JSON.stringify({ ...item, project: group.path, canonicalId: id });
+                if (alias !== row.data) {
+                  db.prepare('UPDATE activity SET data=? WHERE scope=? AND id=?').run(
+                    alias,
+                    reports.scope(),
+                    row.id,
+                  );
+                  changedDays.add(row.day);
+                }
+              }
+            }
+          }
+        }
+        for (const day of changedDays) {
+          db.prepare(
+            'INSERT INTO day_revisions(scope,day,revision) VALUES(?,?,1) ON CONFLICT(scope,day) DO UPDATE SET revision=revision+1',
+          ).run(reports.scope(), day);
+          db.prepare('DELETE FROM coverage WHERE day=?').run(day);
+          db.prepare(
+            "INSERT INTO scheduler_state(key,value) VALUES('backfill_day',?) ON CONFLICT(key) DO UPDATE SET value=MIN(value,excluded.value)",
+          ).run(day);
+        }
+      })();
+    },
     commit(id: string, day: string, result: CollectionResult) {
       db.transaction(() => {
         const insert = db.prepare(
@@ -273,7 +337,7 @@ export function openStore(path: string) {
         | undefined;
     },
     evidencePage(day: string, scope = reports.scope(), offset = 0, query = '', kind = 'all') {
-      const conditions = ['day=?', 'scope=?'];
+      const conditions = ['day=?', 'scope=?', "json_extract(data,'$.canonicalId') IS NULL"];
       const values: string[] = [day, scope];
       if (query) {
         conditions.push(
@@ -312,7 +376,7 @@ export function openStore(path: string) {
       const evidence = (
         db
           .prepare(
-            "SELECT data FROM activity WHERE day=? AND scope=? ORDER BY json_extract(data,'$.time') DESC, id LIMIT 101 OFFSET ?",
+            "SELECT data FROM activity WHERE day=? AND scope=? AND json_extract(data,'$.canonicalId') IS NULL ORDER BY json_extract(data,'$.time') DESC, id LIMIT 101 OFFSET ?",
           )
           .all(day, scope, offset) as { data: string }[]
       ).map((row) => JSON.parse(row.data) as Evidence);
