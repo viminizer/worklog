@@ -50,9 +50,13 @@ export async function discoverRepositories(root: string): Promise<Project[]> {
   await walk(root);
   return repositories.sort((a, b) => a.path.localeCompare(b.path));
 }
-export async function discoverProjects(root: string, gitlabUrl: string): Promise<Project[]> {
+export async function discoverProjects(
+  root: string,
+  gitlabUrl: string,
+  selected?: Project[],
+): Promise<Project[]> {
   const projects = new Map<string, Project>();
-  for (const repository of await discoverRepositories(root)) {
+  for (const repository of selected ?? (await discoverRepositories(root))) {
     const { stdout } = await exec(
       'git',
       ['-C', repository.checkout, 'config', '--get-regexp', '^remote\\..*\\.url$'],

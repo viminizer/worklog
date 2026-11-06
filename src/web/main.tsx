@@ -7,6 +7,7 @@ import './style.css';
 import { api } from './api.js';
 import { EvidencePanel } from './evidence-panel.js';
 import { EvidenceLinks } from './evidence-reference.js';
+import { Projects } from './projects.js';
 import { Reports } from './reports.js';
 import { Settings } from './settings.js';
 
@@ -39,10 +40,11 @@ function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: ()
 }
 function App() {
   const [historyScope, setHistoryScope] = useState('');
-  const [tab, setTab] = useState<'log' | 'reports'>('log');
+  const [tab, setTab] = useState<'log' | 'reports' | 'projects'>('log');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence>();
   const [status, setStatus] = useState<AppStatus>();
+  const statusEpoch = useRef(0);
   const [day, setDay] = useState(DateTime.local().toFormat('yyyy-MM-dd'));
   const [view, setView] = useState<DailyView>();
   const [error, setError] = useState('');
@@ -62,8 +64,9 @@ function App() {
       if (fetching) return;
       fetching = true;
       try {
+        const epoch = statusEpoch.current;
         const value = await api<AppStatus>('/api/status', { signal: controller.signal });
-        if (active) {
+        if (active && epoch === statusEpoch.current) {
           setStatus(value);
           if (!initialized) setDay(DateTime.now().setZone(value.timezone).toFormat('yyyy-MM-dd'));
           initialized = true;
@@ -191,6 +194,7 @@ function App() {
                   {item.id === status.workspaceId
                     ? 'Current workspace'
                     : (item.workRoot ?? 'Imported history')}
+                  {item.label && item.id !== status.workspaceId ? ` · ${item.label}` : ''}
                   {item.id !== status.workspaceId && item.gitlabUrl ? ` · ${item.gitlabUrl}` : ''}
                 </option>
               ))}
@@ -234,6 +238,7 @@ function App() {
             status={status}
             onClose={() => setSettingsOpen(false)}
             onSaved={(value) => {
+              statusEpoch.current++;
               setStatus(value);
               setError('');
               setSettingsOpen(false);
@@ -254,7 +259,27 @@ function App() {
           <button type="button" aria-pressed={tab === 'reports'} onClick={() => setTab('reports')}>
             Reports
           </button>
+          <button
+            type="button"
+            aria-pressed={tab === 'projects'}
+            onClick={() => setTab('projects')}
+          >
+            Projects
+          </button>
         </nav>
+        <div hidden={tab !== 'projects'}>
+          <Projects
+            key={`${status?.workRoot}:${status?.remoteCollection ? status.gitlabUrl : 'local'}`}
+            active={tab === 'projects'}
+            configured={status?.configured ?? false}
+            onSaved={(value) => {
+              statusEpoch.current++;
+              setStatus(value);
+              setHistoryScope('');
+              setRefresh((old) => old + 1);
+            }}
+          />
+        </div>
         <div hidden={tab !== 'reports'}>
           <Reports
             day={day}

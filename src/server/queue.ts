@@ -5,12 +5,28 @@ import { type AppConfig, isDayFinalized } from './config.js';
 import { message } from './errors.js';
 import type { StoreApi } from './store.js';
 
-export function dataScope(config: AppConfig): string {
+export function sourceWorkspace(config: AppConfig): string {
   return createHash('sha256')
     .update(
       JSON.stringify([config.workRoot, config.remoteCollection ? config.gitlabUrl : 'local-git']),
     )
     .digest('hex');
+}
+export function dataScope(config: AppConfig): string {
+  const root = sourceWorkspace(config);
+  return config.includedProjects === undefined && config.includeSharedSessions !== false
+    ? root
+    : createHash('sha256')
+        .update(
+          JSON.stringify([
+            root,
+            config.includedProjects === undefined
+              ? null
+              : [...new Set(config.includedProjects)].sort(),
+            config.includeSharedSessions === true,
+          ]),
+        )
+        .digest('hex');
 }
 export function syncSourceScope(store: StoreApi, config: AppConfig) {
   const scope = createHash('sha256')
@@ -21,6 +37,8 @@ export function syncSourceScope(store: StoreApi, config: AppConfig) {
         config.timezone,
         config.token,
         config.remoteCollection,
+        config.includedProjects,
+        config.includeSharedSessions,
       ]),
     )
     .digest('hex');
@@ -29,6 +47,10 @@ export function syncSourceScope(store: StoreApi, config: AppConfig) {
   if (previous !== scope || store.scope() !== workspace) {
     store.registerWorkspace({
       id: workspace,
+      label:
+        config.includedProjects === undefined
+          ? 'All projects'
+          : `${config.includedProjects.length} selected projects${config.includeSharedSessions ? ' + shared sessions' : ''}`,
       workRoot: config.workRoot,
       gitlabUrl: config.remoteCollection ? (config.gitlabUrl ?? null) : null,
       timezone: config.timezone,

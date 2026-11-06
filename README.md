@@ -87,6 +87,25 @@ limits appear in **Collection status** with manual repair guidance. Fix the setu
 on this computer, then collect that date again. Healthy sources remain available
 and partial collections do not mark the date complete.
 
+## Project selection
+
+Open **Projects** to inspect grouped checkouts and select the projects to collect.
+Saving a selection makes newly discovered projects opt-in. **Rescan projects**
+refreshes the local catalog; it never fetches or changes repositories.
+
+Git history and eligible AI sessions follow the selected scope. For sessions started
+at a shared workspace or between checkouts, use the separate **Include shared
+workspace sessions** option. These sessions can span projects; leave it off for
+sessions started only in selected checkouts. Selection uses recorded working
+directories; it does not classify every project mentioned in a conversation. A nested project's own selection takes precedence
+over an included parent checkout.
+
+Previous reports and evidence remain in **History** when choices change. Collect a
+date again to create a record for the selected scope. Previously read eligible AI
+messages are reindexed for selection changes within the same work folder, while
+cross-folder privacy boundaries stay protected. Ordinary settings edits preserve
+project choices; changing the work folder resets them.
+
 ## Agent behavior
 
 Each run uses a temporary workspace and the same scoped MCP tools for either CLI.

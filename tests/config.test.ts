@@ -90,3 +90,19 @@ it('accepts folder-only settings and expands the current user home without shell
   expect((await loadConfig(path)).token).toBeUndefined();
   expect((await loadConfig(path)).gitlabUrl).toBeUndefined();
 });
+
+it('preserves project choices on ordinary settings edits and clears them for a different root', async () => {
+  const root = await fixture();
+  const path = join(root, 'settings.json');
+  const ids = ['a'.repeat(24), 'b'.repeat(24)];
+  await saveConfig(
+    { workRoot: root, timezone: 'UTC', includedProjects: ids, includeSharedSessions: false },
+    path,
+  );
+  await saveConfig({ workRoot: root, timezone: 'Asia/Seoul', automatic: false }, path);
+  expect((await loadConfig(path)).includedProjects).toEqual(ids);
+  expect((await loadConfig(path)).includeSharedSessions).toBe(false);
+  const other = await fixture();
+  await saveConfig({ workRoot: other, timezone: 'UTC' }, path);
+  expect((await loadConfig(path)).includedProjects).toBeUndefined();
+});

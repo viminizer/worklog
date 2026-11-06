@@ -172,6 +172,39 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
     const localSettings = JSON.parse(await readFile(join(directory, 'config.json'), 'utf8'));
     expect(localSettings.gitlabUrl).toBeUndefined();
     expect(localSettings.token).toBeUndefined();
+    const catalog = await (await fetch(url + '/api/projects')).json();
+    expect(catalog.groups).toEqual([]);
+    const selected = await fetch(url + '/api/projects/selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: catalog.workspaceId,
+        includedProjects: [],
+        includeSharedSessions: true,
+      }),
+    });
+    expect(selected.status).toBe(200);
+    const selectedStatus = await selected.json();
+    expect(selectedStatus.workspaceId).not.toBe(catalog.workspaceId);
+    expect(
+      selectedStatus.workspaces.some(
+        (item: { label: string }) => item.label === '0 selected projects + shared sessions',
+      ),
+    ).toBe(true);
+    const archived = await (
+      await fetch(url + '/api/day?day=2026-11-01&scope=' + catalog.workspaceId)
+    ).json();
+    expect(archived.evidence).toHaveLength(1);
+    const staleSelection = await fetch(url + '/api/projects/selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: catalog.workspaceId,
+        includedProjects: [],
+        includeSharedSessions: true,
+      }),
+    });
+    expect(staleSelection.status).toBe(409);
   } finally {
     child.kill('SIGTERM');
     await once(child, 'exit');

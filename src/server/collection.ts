@@ -6,6 +6,7 @@ import { type AppConfig, configPath, dayWindow } from './config.js';
 import { discoverProjects } from './discovery.js';
 import { message, SourceFailure, StorageFailure } from './errors.js';
 import { GitLab } from './gitlab.js';
+import { sourceWorkspace } from './queue.js';
 import { discoverRepositoryGroups } from './repository-groups.js';
 import { ingestSessions } from './sessions.js';
 import { Store } from './store.js';
@@ -14,9 +15,34 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
   Effect.gen(function* () {
     const store = yield* Store;
     const agent = yield* AgentRunner;
+    const allRepositories = yield* Effect.tryPromise({
+      try: () => discoverRepositoryGroups(config.workRoot),
+      catch: (error) => new SourceFailure({ message: message(error) }),
+    });
+    const included = new Set(config.includedProjects);
+    const repositories = allRepositories.filter(
+      (group) => config.includedProjects === undefined || included.has(group.id),
+    );
     const ingestion = yield* Effect.tryPromise({
       try: (signal) =>
-        ingestSessions({ workRoot: config.workRoot, timezone: config.timezone, store, signal }),
+        ingestSessions({
+          workRoot: config.workRoot,
+          timezone: config.timezone,
+          store,
+          signal,
+          workspace: sourceWorkspace(config),
+          includeSharedSessions:
+            config.includedProjects === undefined
+              ? config.includeSharedSessions !== false
+              : config.includeSharedSessions === true,
+          repositoryRoots: allRepositories.flatMap((group) =>
+            group.members.map((checkout) => ({
+              checkout,
+              included: config.includedProjects === undefined || included.has(group.id),
+              project: group.path,
+            })),
+          ),
+        }),
       catch: (error) =>
         new SourceFailure({ message: `Session collection failed: ${message(error)}` }),
     }).pipe(
@@ -41,10 +67,6 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
           ]
             .join(' · ')
             .slice(0, 2000) || undefined;
-    const repositories = yield* Effect.tryPromise({
-      try: () => discoverRepositoryGroups(config.workRoot),
-      catch: (error) => new SourceFailure({ message: message(error) }),
-    });
     const memberWarnings = repositories.flatMap((group) =>
       group.authorEmails.length
         ? group.checkouts
@@ -57,7 +79,7 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
     let projects: Project[] = [];
     if (config.remoteCollection && config.gitlabUrl) {
       const discovery = yield* Effect.tryPromise({
-        try: () => discoverProjects(config.workRoot, config.gitlabUrl as string),
+        try: () => discoverProjects(config.workRoot, config.gitlabUrl as string, repositories),
         catch: () =>
           new SourceFailure({
             message:

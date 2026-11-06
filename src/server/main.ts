@@ -21,6 +21,7 @@ import { GitLab } from './gitlab.js';
 import { acquireInstance } from './instance.js';
 import { createQueue, dataScope, syncSourceScope } from './queue.js';
 import { generateReport, reportId, validateRange } from './report.js';
+import { discoverRepositoryGroups } from './repository-groups.js';
 import { Store, storeLayer } from './store.js';
 
 await prepareDataDir();
@@ -171,6 +172,57 @@ const server = createServer(async (request, response) => {
         store.cancelQueued();
         store.setState('next_auto', '0');
         store.setState('auto_scope', '');
+        return json(response, 200, await status());
+      } finally {
+        queue.resume();
+      }
+    }
+    if (request.method === 'GET' && url.pathname === '/api/projects') {
+      const config = await loadConfig().catch(() => {
+        throw new Error('Save a work folder before choosing projects.');
+      });
+      return json(response, 200, {
+        workspaceId: dataScope(config),
+        root: config.workRoot,
+        groups: await discoverRepositoryGroups(config.workRoot),
+        selection: config.includedProjects ?? null,
+        includeSharedSessions:
+          config.includedProjects === undefined
+            ? config.includeSharedSessions !== false
+            : config.includeSharedSessions === true,
+      });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/projects/selection') {
+      if (!queue.pause())
+        return json(response, 409, {
+          error: 'Wait for the current task before changing projects.',
+        });
+      try {
+        const input = Schema.decodeUnknownSync(
+          Schema.Struct({
+            workspaceId: Schema.String,
+            includedProjects: Schema.Array(Schema.String).check(Schema.isMaxLength(200)),
+            includeSharedSessions: Schema.Boolean,
+          }),
+        )(await body(request));
+        const config = await loadConfig();
+        if (input.workspaceId !== dataScope(config))
+          return json(response, 409, {
+            error: 'Project settings changed. Reload the saved choices before applying yours.',
+          });
+        const groups = await discoverRepositoryGroups(config.workRoot);
+        const ids = new Set(groups.map((group) => group.id));
+        if (input.includedProjects.some((id) => !ids.has(id)))
+          return json(response, 409, {
+            error: 'The discovered projects changed. Rescan before saving.',
+          });
+        const saved = await saveConfig({
+          ...config,
+          includedProjects: input.includedProjects,
+          includeSharedSessions: input.includeSharedSessions,
+        });
+        syncSourceScope(store, saved);
+        store.cancelQueued();
         return json(response, 200, await status());
       } finally {
         queue.resume();

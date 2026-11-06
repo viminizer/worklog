@@ -53,6 +53,12 @@ export function createReportStore(db: Database.Database) {
       db.prepare('INSERT INTO migrations VALUES(5)').run();
     })();
   }
+  if (!db.prepare('SELECT version FROM migrations WHERE version=6').get()) {
+    db.transaction(() => {
+      db.exec("ALTER TABLE workspaces ADD COLUMN label TEXT NOT NULL DEFAULT ''");
+      db.prepare('INSERT INTO migrations VALUES(6)').run();
+    })();
+  }
   const currentScope = () =>
     (
       db.prepare("SELECT value FROM scheduler_state WHERE key='data_scope'").get() as
@@ -127,8 +133,15 @@ export function createReportStore(db: Database.Database) {
     },
     registerWorkspace(input: Workspace) {
       db.prepare(
-        'INSERT INTO workspaces(id,workRoot,gitlabUrl,timezone,lastUsedAt) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET workRoot=excluded.workRoot,gitlabUrl=excluded.gitlabUrl,timezone=excluded.timezone,lastUsedAt=excluded.lastUsedAt',
-      ).run(input.id, input.workRoot, input.gitlabUrl, input.timezone, input.lastUsedAt);
+        'INSERT INTO workspaces(id,workRoot,gitlabUrl,timezone,lastUsedAt,label) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET workRoot=excluded.workRoot,gitlabUrl=excluded.gitlabUrl,timezone=excluded.timezone,lastUsedAt=excluded.lastUsedAt,label=excluded.label',
+      ).run(
+        input.id,
+        input.workRoot,
+        input.gitlabUrl,
+        input.timezone,
+        input.lastUsedAt,
+        input.label ?? '',
+      );
     },
     reportForRange(scope: string, kind: string, fromDay: string, toDay: string) {
       return view(

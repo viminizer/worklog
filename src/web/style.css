@@ -747,3 +747,61 @@ dialog pre {
   letter-spacing: 0;
   white-space: nowrap;
 }
+
+.projects-pane {
+  padding-top: 1rem;
+}
+.project-toolbar,
+.project-bulk {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.project-toolbar label {
+  display: grid;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 12rem;
+  font-size: 0.8rem;
+}
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.project-card {
+  border: 1px solid var(--line);
+  padding: 1rem;
+  border-radius: 4px;
+  min-width: 0;
+}
+.project-choice {
+  display: flex;
+  gap: 0.65rem;
+  align-items: start;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.project-choice input {
+  flex: none;
+  margin-top: 0.3rem;
+}
+.project-card p {
+  font-size: 0.8rem;
+}
+.project-card details {
+  font-size: 0.8rem;
+}
+.project-card li {
+  margin-top: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.project-card ul {
+  padding-left: 1rem;
+}
+.shared-session-choice {
+  margin-top: 1.5rem;
+}

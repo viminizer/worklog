@@ -14,6 +14,7 @@ export interface SessionCursor {
   scope: string;
   consumedHash: string;
   workspace?: string;
+  projection?: string;
   baseOffset?: number;
 }
 interface SessionOptions {
@@ -23,6 +24,9 @@ interface SessionOptions {
   codexDir?: string;
   claudeDir?: string;
   signal?: AbortSignal;
+  workspace?: string;
+  repositoryRoots?: Array<{ checkout: string; included: boolean; project: string }>;
+  includeSharedSessions?: boolean;
 }
 const hash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 24);
 function record(value: unknown): Record<string, unknown> {
@@ -103,8 +107,22 @@ export async function ingestSessions(
   options: SessionOptions,
 ): Promise<{ files: number; records: number; hasMore: boolean; warnings: string[] }> {
   const root = await realpath(options.workRoot);
-  const scope = `${root}:${options.timezone}`;
-  const workspace = options.store.scope();
+  const repositoryRoots = options.repositoryRoots
+    ?.slice()
+    .sort((a, b) => b.checkout.length - a.checkout.length || a.checkout.localeCompare(b.checkout));
+  const owner = (cwd: string) => repositoryRoots?.find((item) => inside(item.checkout, cwd));
+  const allowed = (cwd: string) =>
+    !repositoryRoots || (owner(cwd)?.included ?? options.includeSharedSessions !== false);
+  const scope = repositoryRoots
+    ? JSON.stringify([
+        root,
+        options.timezone,
+        repositoryRoots,
+        options.includeSharedSessions === true,
+      ])
+    : `${root}:${options.timezone}`;
+  const workspace = options.workspace ?? options.store.scope();
+  const projection = options.store.scope();
   const warnings: string[] = [];
   let files = 0;
   let records = 0;
@@ -147,6 +165,7 @@ export async function ingestSessions(
           if (
             previous &&
             (previous.workspace ?? 'legacy') === workspace &&
+            (previous.projection ?? previous.workspace ?? 'legacy') === projection &&
             previous.scope === scope &&
             info.size === previous.offset &&
             info.mtimeMs === previous.modified
@@ -163,7 +182,7 @@ export async function ingestSessions(
               continue;
             let cwd = metadata.cwd;
             const canonical = await realpath(cwd).catch(() => resolve(cwd));
-            if (!inside(root, canonical)) continue;
+            if (!inside(root, canonical) || !allowed(canonical)) continue;
             files++;
             const fingerprint = `${info.dev}:${info.ino}:${hash(metadata.firstLine)}`;
             let consumed = createHash('sha256');
@@ -182,7 +201,11 @@ export async function ingestSessions(
                 'Session changed across a workspace boundary. Start a new coding session; archived history remains preserved.',
               );
             const resume = Boolean(
-              previous && validPrefix && (previous.scope === scope || changedWorkspace),
+              previous &&
+                validPrefix &&
+                ((previous.scope === scope &&
+                  (previous.projection ?? previous.workspace ?? 'legacy') === projection) ||
+                  changedWorkspace),
             );
             let position = resume && previous ? previous.offset : baseOffset;
             if (!resume) consumed = await prefixHash(file, position, options.signal);
@@ -197,7 +220,7 @@ export async function ingestSessions(
               const candidate = provider === 'codex' ? payload.cwd : value.cwd;
               if (typeof candidate === 'string')
                 cwd = await realpath(candidate).catch(() => resolve(candidate));
-              if (!inside(root, cwd) || value.isSidechain === true) return;
+              if (!inside(root, cwd) || !allowed(cwd) || value.isSidechain === true) return;
               const message =
                 provider === 'codex' && value.type === 'response_item' && payload.type === 'message'
                   ? payload
@@ -221,7 +244,7 @@ export async function ingestSessions(
               const id = `session:${provider}:${hash(`${path}:${fingerprint}`)}:${entryId}`;
               evidence.push({
                 id,
-                project: relative(root, cwd) || basename(root),
+                project: owner(cwd)?.project ?? (relative(root, cwd) || basename(root)),
                 time: time.toUTC().toJSDate().toISOString(),
                 action: String(message.role),
                 title: text.slice(0, 240),
@@ -280,6 +303,7 @@ export async function ingestSessions(
                 scope,
                 consumedHash,
                 workspace,
+                projection,
                 baseOffset,
               },
               evidence,

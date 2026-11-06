@@ -33,6 +33,7 @@ export interface ReportMaterial {
 }
 export interface Workspace {
   id: string;
+  label?: string;
   workRoot: string | null;
   gitlabUrl: string | null;
   timezone: string;
@@ -86,6 +87,13 @@ export interface RepositoryGroup extends Project {
   authorEmails: string[];
   checkouts: RepositoryCheckout[];
   commonDir?: string;
+}
+export interface ProjectCatalog {
+  workspaceId: string;
+  root: string;
+  groups: RepositoryGroup[];
+  selection: string[] | null;
+  includeSharedSessions: boolean;
 }
 export interface Evidence {
   id: string;

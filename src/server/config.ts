@@ -10,6 +10,8 @@ const ConfigSchema = Schema.Struct({
   gitlabUrl: Schema.optionalKey(Schema.String),
   token: Schema.optionalKey(Schema.String),
   remoteCollection: Schema.optionalKey(Schema.Boolean),
+  includedProjects: Schema.optionalKey(Schema.Array(Schema.String).check(Schema.isMaxLength(200))),
+  includeSharedSessions: Schema.optionalKey(Schema.Boolean),
   timezone: Schema.String,
   automatic: Schema.optionalKey(Schema.Boolean),
   collectionStartDate: Schema.optionalKey(Schema.String),
@@ -43,7 +45,11 @@ export async function prepareDataDir() {
 export function validateConfig(input: unknown): AppConfig {
   let config: AppConfig;
   try {
-    config = Schema.decodeUnknownSync(ConfigSchema)(input);
+    config = Schema.decodeUnknownSync(ConfigSchema)(
+      input && typeof input === 'object' && !Array.isArray(input)
+        ? Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
+        : input,
+    );
   } catch {
     throw new Error('Settings require a work folder and timezone.');
   }
@@ -79,7 +85,19 @@ export function validateConfig(input: unknown): AppConfig {
     if (config.collectionStartDate > DateTime.now().setZone(config.timezone).toFormat('yyyy-MM-dd'))
       throw new Error('History start cannot be in the future.');
   }
-  return { ...config, workRoot, token, gitlabUrl };
+  if (config.includedProjects?.some((id) => !/^[a-f0-9]{24}$/.test(id)))
+    throw new Error('Invalid project selection. Reload the project list.');
+  if (config.includedProjects?.length === 0 && config.includeSharedSessions !== true)
+    throw new Error('Select a project or include shared workspace sessions.');
+  return {
+    ...config,
+    workRoot,
+    token,
+    gitlabUrl,
+    ...(config.includedProjects
+      ? { includedProjects: [...new Set(config.includedProjects)].sort() }
+      : {}),
+  };
 }
 export async function loadConfig(path = configPath): Promise<AppConfig> {
   let input: unknown;
@@ -104,18 +122,27 @@ export async function saveConfig(input: unknown, path = configPath): Promise<App
     throw new Error('Work folder does not exist or is not readable.');
   });
   if (!(await stat(workRoot)).isDirectory()) throw new Error('Work folder must be a directory.');
+  const effective = {
+    ...config,
+    workRoot,
+    ...(!Object.hasOwn(values, 'includedProjects') &&
+    old?.workRoot === workRoot &&
+    old.includedProjects !== undefined
+      ? { includedProjects: old.includedProjects, includeSharedSessions: old.includeSharedSessions }
+      : {}),
+  };
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await assertPrivateLocation(path);
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, JSON.stringify({ ...config, workRoot }, null, 2) + '\n', {
+    await writeFile(temporary, JSON.stringify(effective, null, 2) + '\n', {
       mode: 0o600,
     });
     await rename(temporary, path);
   } finally {
     await rm(temporary, { force: true });
   }
-  return { ...config, workRoot };
+  return effective;
 }
 export function dayWindow(day: string, timezone: string) {
   const start = DateTime.fromISO(day, { zone: timezone });

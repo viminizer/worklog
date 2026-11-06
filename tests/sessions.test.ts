@@ -251,3 +251,85 @@ it('does not replay an already collected session prefix into another workspace',
     'Old workspace text.',
   ]);
 });
+
+it('replays selected history within the same source root while excluding nested projects and preserving archive data', async () => {
+  const options = await fixture();
+  const parent = join(options.workRoot, 'parent');
+  const nested = join(parent, 'nested');
+  await mkdir(nested, { recursive: true });
+  await writeFile(
+    join(options.codexDir, 'parent.jsonl'),
+    jsonl(header(parent), codexMessage('Selected parent work')),
+  );
+  await writeFile(
+    join(options.codexDir, 'nested.jsonl'),
+    jsonl(header(nested), codexMessage('Excluded nested work')),
+  );
+  await writeFile(
+    join(options.codexDir, 'shared.jsonl'),
+    jsonl(header(options.workRoot), codexMessage('Shared workspace work')),
+  );
+  options.store.setState('data_scope', 'root');
+  await ingestSessions({ ...options, workspace: 'root' });
+  expect(options.store.daily('2026-11-05').evidence).toHaveLength(3);
+  const allRoots = [
+    { checkout: parent, included: true, project: 'parent' },
+    { checkout: nested, included: true, project: 'nested' },
+  ];
+  await ingestSessions({
+    ...options,
+    workspace: 'root',
+    repositoryRoots: allRoots,
+    includeSharedSessions: true,
+  });
+  options.store.setState('data_scope', 'explicit-all');
+  expect(
+    (
+      await ingestSessions({
+        ...options,
+        workspace: 'root',
+        repositoryRoots: allRoots,
+        includeSharedSessions: true,
+      })
+    ).records,
+  ).toBe(3);
+  expect(options.store.daily('2026-11-05').evidence).toHaveLength(3);
+  expect(
+    (
+      await ingestSessions({
+        ...options,
+        workspace: 'root',
+        repositoryRoots: allRoots,
+        includeSharedSessions: true,
+      })
+    ).records,
+  ).toBe(0);
+  options.store.setState('data_scope', 'selected');
+  const repositoryRoots = [
+    { checkout: parent, included: true, project: 'parent' },
+    { checkout: nested, included: false, project: 'nested' },
+  ];
+  await ingestSessions({
+    ...options,
+    workspace: 'root',
+    repositoryRoots,
+    includeSharedSessions: false,
+  });
+  expect(options.store.daily('2026-11-05').evidence.map((item) => item.title)).toEqual([
+    'Selected parent work',
+  ]);
+  expect(options.store.daily('2026-11-05', 0, 'root').evidence).toHaveLength(3);
+  options.store.setState('data_scope', 'selected-with-shared');
+  await ingestSessions({
+    ...options,
+    workspace: 'root',
+    repositoryRoots,
+    includeSharedSessions: true,
+  });
+  expect(
+    options.store
+      .daily('2026-11-05')
+      .evidence.map((item) => item.title)
+      .sort(),
+  ).toEqual(['Selected parent work', 'Shared workspace work']);
+});
