@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import { useEffect, useState } from 'react';
 import type { Evidence, EvidencePage } from '../shared/domain.js';
 import { api } from './api.js';
@@ -12,7 +13,6 @@ export function EvidencePanel({
   scope: string;
   onOpen: (item: Evidence) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
@@ -65,41 +65,46 @@ export function EvidencePanel({
     };
   }, [key, day, scope, offset, query, kind]);
   return (
-    <section className="side-section evidence-panel" aria-label="Source evidence">
-      <div className="evidence-heading">
-        <p className="eyebrow">SOURCE EVIDENCE</p>
-        {page && <span className="count">{page.total}</span>}
-      </div>
-      {expanded && (
-        <div className="evidence-filters">
-          <label>
-            Find sources
-            <input
-              type="search"
-              maxLength={200}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Title or project"
-            />
-          </label>
-          <label>
-            Source
-            <select
-              value={kind}
-              onChange={(event) => {
-                setKind(event.target.value);
-                setOffset(0);
-              }}
-            >
-              <option value="all">All sources</option>
-              <option value="git">Local Git</option>
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
-              <option value="gitlab">GitLab</option>
-            </select>
-          </label>
+    <section className="evidence-panel" aria-label="Source evidence">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">THE SOURCE MATERIAL</p>
+          <h2>Behind your working record.</h2>
         </div>
-      )}
+        {page && <span className="count">{page.total} sources</span>}
+      </div>
+      <p className="muted">
+        {DateTime.fromISO(day).toFormat('cccc, LLLL d')} · Browse the commits and AI sessions
+        collected for this day.
+      </p>
+      <div className="evidence-filters">
+        <label>
+          Find sources
+          <input
+            type="search"
+            maxLength={200}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Title or project"
+          />
+        </label>
+        <label>
+          Source
+          <select
+            value={kind}
+            onChange={(event) => {
+              setKind(event.target.value);
+              setOffset(0);
+            }}
+          >
+            <option value="all">All sources</option>
+            <option value="git">Local Git</option>
+            <option value="codex">Codex</option>
+            <option value="claude">Claude Code</option>
+            <option value="gitlab">GitLab</option>
+          </select>
+        </label>
+      </div>
       {problem && (
         <p role="alert" className="job-error">
           {problem}
@@ -118,18 +123,13 @@ export function EvidencePanel({
         </p>
       )}
       {page && (
-        <div
-          className={`evidence-results${expanded ? ' expanded' : ''}`}
-          tabIndex={expanded ? 0 : undefined}
-          role="region"
-          aria-label="Evidence records"
-        >
-          {page.items.slice(0, expanded ? 10 : 5).map((item) => (
+        <div className="evidence-results" tabIndex={0} role="region" aria-label="Evidence records">
+          {page.items.map((item) => (
             <EvidenceReference key={item.id} item={item} onOpen={onOpen} full />
           ))}
         </div>
       )}
-      {expanded && page && page.total > 10 && (
+      {page && page.total > 10 && (
         <nav className="pagination" aria-label="Evidence pages">
           <button
             type="button"
@@ -151,24 +151,6 @@ export function EvidencePanel({
             Next
           </button>
         </nav>
-      )}
-      {(expanded || Boolean(page?.total)) && (
-        <button
-          type="button"
-          className="quiet browse-evidence"
-          aria-expanded={expanded}
-          onClick={() => {
-            setExpanded((value) => !value);
-            setOffset(0);
-            setSearch('');
-            setQuery('');
-            setKind('all');
-          }}
-        >
-          {expanded
-            ? 'Show fewer sources'
-            : `Browse sources${page && page.total > 5 ? ` (${page.total})` : ''}`}
-        </button>
       )}
     </section>
   );

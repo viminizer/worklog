@@ -137,15 +137,6 @@ input {
   padding: 9px 10px;
   color: var(--ink);
 }
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  margin-top: 39px;
-  gap: 45px;
-}
-.journal {
-  min-width: 0;
-}
 .section-heading {
   display: flex;
   align-items: center;
@@ -234,40 +225,10 @@ h2 {
   text-decoration: none;
   border-bottom: 1px solid var(--line);
 }
-aside {
-  border-left: 1px solid var(--line);
-  padding-left: 27px;
-}
-.side-section {
-  margin-bottom: 35px;
-}
 .muted {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.8;
-}
-.job {
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-}
-.job > div {
-  display: flex;
-  justify-content: space-between;
-}
-.job strong {
-  font-weight: 600;
-  text-transform: capitalize;
-}
-.job span,
-.job time {
-  color: var(--muted);
-  font-size: 10px;
-}
-.job p {
-  font-size: 11px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
 }
 .job-error {
   color: var(--error);
@@ -288,13 +249,6 @@ aside {
   line-height: 1.6;
   margin: 6px 0 0;
   overflow-wrap: anywhere;
-}
-.footnote {
-  font-family: var(--serif);
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--muted);
-  font-style: italic;
 }
 .notice {
   margin-top: 22px;
@@ -341,15 +295,6 @@ footer > span {
   }
   .intro {
     padding-top: 42px;
-  }
-  .workspace {
-    grid-template-columns: 1fr;
-    gap: 28px;
-  }
-  aside {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 26px 0 0;
   }
   .local-badge {
     font-size: 8px;
@@ -493,12 +438,6 @@ dialog pre {
   gap: 12px;
   margin-top: 20px;
 }
-.queue-summary {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
-  font-size: 12px;
-  line-height: 1.7;
-}
 @media (max-width: 760px) {
   .settings-grid {
     grid-template-columns: 1fr;
@@ -546,7 +485,8 @@ dialog pre {
   font-size: 10px;
   letter-spacing: 1px;
 }
-.report-controls select {
+.report-controls select,
+.evidence-filters select {
   font: inherit;
   font-size: 13px;
   color: var(--ink);
@@ -672,19 +612,7 @@ dialog pre {
   max-width: 42rem;
 }
 
-.evidence-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.evidence-heading .eyebrow {
-  margin: 0;
-}
 .evidence-results {
-  margin-top: 1rem;
-}
-.evidence-results.expanded {
   max-height: 26rem;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -715,10 +643,6 @@ dialog pre {
 .evidence-panel .pagination {
   flex-wrap: wrap;
   font-size: 0.75rem;
-}
-.browse-evidence {
-  width: 100%;
-  margin-top: 0.75rem;
 }
 .citation-group {
   margin-top: 0.75rem;
@@ -855,11 +779,207 @@ dialog pre {
   font-size: 0.75rem;
   padding: 0.5rem 0.75rem;
 }
-.job-problem details {
-  font-size: 0.8rem;
-  margin: 0.75rem 0;
+
+.daily-workspace {
+  margin-top: 24px;
 }
-.job-problem button {
-  font-size: 0.75rem;
-  padding: 0.5rem 0.75rem;
+.journal {
+  min-width: 0;
+  padding-top: 32px;
+}
+.collection-panel {
+  border-bottom: 1px solid var(--line);
+}
+.collection-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 0;
+}
+.collector-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.collector-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--muted);
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.collector-dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px #315a4312;
+}
+.collector-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.collector-meta {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 4px 0 0;
+}
+.collector-privacy {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.collection-history {
+  padding: 12px 0;
+}
+.collection-history > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+.collection-history > summary span {
+  margin-left: 12px;
+  font-size: 10px;
+}
+.collection-history[open] > summary {
+  color: var(--ink);
+}
+.task-list {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.task-row {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  min-width: 0;
+  font-size: 12px;
+}
+.task-row p {
+  overflow-wrap: anywhere;
+}
+.task-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.task-heading strong {
+  font-size: 12px;
+}
+.task-heading time {
+  color: var(--muted);
+  font-size: 11px;
+}
+.task-state {
+  margin-left: 8px;
+  font-weight: 400;
+  text-transform: capitalize;
+  color: var(--muted);
+}
+.task-state.failed,
+.task-state.partial {
+  color: var(--error);
+}
+.task-error {
+  color: var(--error);
+}
+.task-error summary {
+  cursor: pointer;
+}
+.task-error p {
+  max-height: 14rem;
+  overflow-y: auto;
+  line-height: 1.7;
+}
+.collection-warning {
+  border-left: 2px solid var(--error);
+  background: #963f2e06;
+  padding: 16px 20px;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  color: var(--error);
+}
+.collection-warning strong {
+  font-size: 12px;
+}
+.collection-warning p {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  max-height: 5rem;
+  overflow-y: auto;
+}
+.collection-warning button {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 9px 12px;
+}
+.evidence-panel {
+  padding: 32px 0 0;
+}
+.evidence-panel .evidence-filters {
+  grid-template-columns: minmax(0, 1fr) 200px;
+  padding: 20px 0;
+  margin: 20px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.evidence-panel .evidence-results {
+  max-height: 32rem;
+  margin-top: 0;
+}
+.evidence-panel .evidence {
+  padding: 18px 12px;
+}
+.evidence-panel .evidence p {
+  font-size: 14px;
+  color: var(--ink);
+}
+.evidence-panel .evidence span {
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .view-tabs {
+    gap: 22px;
+  }
+  .collector-privacy {
+    display: none;
+  }
+  .collection-strip {
+    padding: 16px 0;
+  }
+  .collection-warning {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px;
+  }
+  .task-list {
+    grid-template-columns: 1fr;
+  }
+  .evidence-panel .evidence-filters {
+    grid-template-columns: 1fr;
+  }
+  .evidence-panel .section-heading {
+    align-items: flex-start;
+  }
+  .evidence-panel .section-heading h2 {
+    font-size: 27px;
+  }
+}
+
+.collection-warning .task-error {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.collection-warning > div {
+  min-width: 0;
 }

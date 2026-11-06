@@ -5,6 +5,7 @@ import packageInfo from '../../package.json' with { type: 'json' };
 import type { AppStatus, DailyView, Evidence } from '../shared/domain.js';
 import './style.css';
 import { api } from './api.js';
+import { CollectionStatus } from './collection-status.js';
 import { EvidencePanel } from './evidence-panel.js';
 import { EvidenceLinks } from './evidence-reference.js';
 import { Projects } from './projects.js';
@@ -41,7 +42,7 @@ function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: ()
 function App() {
   const [historyScope, setHistoryScope] = useState('');
   const [repairFocus, setRepairFocus] = useState(0);
-  const [tab, setTab] = useState<'log' | 'reports' | 'projects'>('log');
+  const [tab, setTab] = useState<'log' | 'reports' | 'sources' | 'projects'>('log');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence>();
   const [status, setStatus] = useState<AppStatus>();
@@ -260,6 +261,9 @@ function App() {
           <button type="button" aria-pressed={tab === 'reports'} onClick={() => setTab('reports')}>
             Reports
           </button>
+          <button type="button" aria-pressed={tab === 'sources'} onClick={() => setTab('sources')}>
+            Sources
+          </button>
           <button
             type="button"
             aria-pressed={tab === 'projects'}
@@ -282,6 +286,14 @@ function App() {
             }}
           />
         </div>
+        {tab === 'sources' && (
+          <EvidencePanel
+            key={`${scope}:${day}`}
+            day={day}
+            scope={scope}
+            onOpen={setSelectedEvidence}
+          />
+        )}
         <div hidden={tab !== 'reports'}>
           <Reports
             day={day}
@@ -293,7 +305,16 @@ function App() {
           />
         </div>
         <div hidden={tab !== 'log'}>
-          <div className="workspace">
+          <div className="daily-workspace">
+            <CollectionStatus
+              status={status}
+              jobs={view?.jobs ?? []}
+              archived={archived}
+              onRepair={() => {
+                setRepairFocus((value) => value + 1);
+                setTab('projects');
+              }}
+            />
             <section className="journal">
               <div className="section-heading">
                 <div>
@@ -351,100 +372,6 @@ function App() {
                 </nav>
               )}
             </section>
-            <aside>
-              <section className="side-section">
-                <p className="eyebrow">COLLECTION STATUS</p>
-                {status?.configured && (
-                  <div className="queue-summary">
-                    <p>
-                      {status.activeJob
-                        ? `${status.activeJob.kind === 'report' ? 'Preparing report for' : 'Collecting'} ${status.activeJob.day}`
-                        : status.automatic
-                          ? 'Automatic collection is on'
-                          : 'Automatic collection is paused'}
-                    </p>
-                    <p className="muted">
-                      {status.queuedJobs} queued ·{' '}
-                      {status.lastCollectedAt
-                        ? `Last complete: ${DateTime.fromISO(status.lastCollectedAt).toRelative()}`
-                        : 'No complete collection yet'}
-                    </p>
-                    {status.automatic && status.nextAutomaticAt && (
-                      <p className="muted">
-                        Next check {DateTime.fromISO(status.nextAutomaticAt).toRelative()}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {view?.jobs.length ? (
-                  view.jobs.slice(0, 4).map((job) => (
-                    <div className="job" key={job.id}>
-                      <div>
-                        <strong>
-                          {job.kind === 'report' ? 'Report · ' : ''}
-                          {job.status}
-                        </strong>
-                        <span>
-                          {job.agent ?? 'Preparing'}
-                          {job.attempts > 0 ? ` · attempt ${job.attempts}/3` : ''}
-                        </span>
-                      </div>
-                      <time>
-                        {DateTime.fromISO(job.createdAt).toLocaleString(DateTime.TIME_SIMPLE)}
-                      </time>
-                      {job.fallback && <p>Switched to Claude Code: {job.fallback}</p>}
-                      {job.error && (
-                        <div
-                          className="job-problem"
-                          role={
-                            view.jobs.find((item) => item.kind === job.kind)?.id === job.id
-                              ? 'alert'
-                              : undefined
-                          }
-                        >
-                          <p className="job-error">
-                            {view.jobs.find((item) => item.kind === job.kind)?.id === job.id
-                              ? job.error.split(' · ')[0]
-                              : 'An earlier task reported an error.'}
-                          </p>
-                          <details>
-                            <summary>Original task error</summary>
-                            <p className="job-error">{job.error}</p>
-                            <p>Fix the setup, then collect this date again.</p>
-                          </details>
-                          {view.jobs.find((item) => item.kind === job.kind)?.id === job.id &&
-                            /Git|checkout|repository|worktree/i.test(job.error) && (
-                              <button
-                                type="button"
-                                className="quiet"
-                                onClick={() => {
-                                  setRepairFocus((value) => value + 1);
-                                  setTab('projects');
-                                }}
-                              >
-                                Review repository setup
-                              </button>
-                            )}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <p className="muted">No collections for this day.</p>
-                )}
-              </section>
-              <EvidencePanel
-                key={`${scope}:${day}`}
-                day={day}
-                scope={scope}
-                onOpen={setSelectedEvidence}
-              />
-              <div className="footnote">
-                Stored on this computer.
-                <br />
-                Codex first. Claude Code when needed.
-              </div>
-            </aside>
           </div>
         </div>
       </main>

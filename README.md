@@ -53,6 +53,11 @@ under your work folder, asks the agent to inspect each repository, validates
 source coverage and evidence references, and saves the daily record atomically.
 Repeated collection updates the record without duplicating evidence.
 
+The daily log uses the full page width. A compact collection bar shows live status,
+with recent tasks under **Activity for this day** and current errors visible.
+Open **Sources** to search and filter that date’s evidence, browse ten records at
+a time, and open the original context. Citations also remain on each daily entry.
+
 For optional GitLab API collection, the token's authenticated GitLab user determines whose remote activity is collected.
 GitLab URL must use HTTPS; SSH and HTTPS Git remotes are supported, including nested
 namespaces. Multiple checkouts of the same project count once. Worklog does not
