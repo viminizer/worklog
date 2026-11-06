@@ -2,7 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createQueue, schedule, syncSourceScope } from '../src/server/queue.js';
+import {
+  createQueue,
+  dataScope,
+  schedule,
+  sourceWorkspace,
+  syncSourceScope,
+} from '../src/server/queue.js';
 import { openStore, type StoreApi } from '../src/server/store.js';
 import type { Job } from '../src/shared/domain.js';
 
@@ -270,4 +276,20 @@ it('scopes completeness to configuration even when settings were edited outside 
   syncSourceScope(database, { ...config, workRoot: '/different-work' });
   expect(database.coverage('2026-11-05')).toBeUndefined();
   expect(database.daily('2026-11-05').jobs).toHaveLength(1);
+});
+
+it('isolates changed scan-depth records while retaining same-root privacy identity and archives', () => {
+  const database = store();
+  syncSourceScope(database, config);
+  const original = dataScope(config);
+  expect(dataScope({ ...config, scanDepth: 3 })).toBe(original);
+  database.enqueue('one', '2026-11-05');
+  complete(database, { id: 'one', day: '2026-11-05' });
+  const changed = { ...config, scanDepth: 4 };
+  syncSourceScope(database, changed);
+  expect(dataScope(changed)).not.toBe(original);
+  expect(sourceWorkspace(changed)).toBe(sourceWorkspace(config));
+  expect(database.coverage('2026-11-05')).toBeUndefined();
+  expect(database.workspaces().some((workspace) => workspace.id === original)).toBe(true);
+  expect(database.state('auto_scope')).toBe('');
 });

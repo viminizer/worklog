@@ -99,6 +99,7 @@ export interface RepositoryGroup extends Project {
   commonDir?: string;
 }
 export interface ProjectCatalog {
+  scanDepth: number;
   workspaceId: string;
   root: string;
   groups: RepositoryGroup[];
@@ -160,6 +161,7 @@ export interface DailyView {
   jobs: Job[];
 }
 export interface AppStatus {
+  scanDepth: number;
   configured: boolean;
   remoteCollection: boolean;
   workspaceId: string;

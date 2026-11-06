@@ -5,10 +5,13 @@ import type { RepositoryGroup } from '../shared/domain.js';
 import { inspectCheckout } from './diagnostics.js';
 import { discoverRepositories } from './discovery.js';
 
-export async function discoverRepositoryGroups(root: string): Promise<RepositoryGroup[]> {
+export async function discoverRepositoryGroups(
+  root: string,
+  scanDepth?: number,
+): Promise<RepositoryGroup[]> {
   root = await realpath(root);
   const groups = new Map<string, RepositoryGroup>();
-  for (const repository of await discoverRepositories(root)) {
+  for (const repository of await discoverRepositories(root, scanDepth)) {
     const member = await inspectCheckout(root, repository);
     const identity = member.commonDir ?? repository.checkout;
     const id = createHash('sha256').update(identity).digest('hex').slice(0, 24);

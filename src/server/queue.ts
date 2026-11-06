@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type { Job } from '../shared/domain.js';
+import { DEFAULT_SCAN_DEPTH } from '../shared/scan-depth.js';
 import { type AppConfig, isDayFinalized } from './config.js';
 import { message } from './errors.js';
 import type { StoreApi } from './store.js';
@@ -14,18 +15,25 @@ export function sourceWorkspace(config: AppConfig): string {
 }
 export function dataScope(config: AppConfig): string {
   const root = sourceWorkspace(config);
-  return config.includedProjects === undefined && config.includeSharedSessions !== false
-    ? root
+  const projects =
+    config.includedProjects === undefined && config.includeSharedSessions !== false
+      ? root
+      : createHash('sha256')
+          .update(
+            JSON.stringify([
+              root,
+              config.includedProjects === undefined
+                ? null
+                : [...new Set(config.includedProjects)].sort(),
+              config.includeSharedSessions === true,
+            ]),
+          )
+          .digest('hex');
+  const depth = config.scanDepth ?? DEFAULT_SCAN_DEPTH;
+  return depth === DEFAULT_SCAN_DEPTH
+    ? projects
     : createHash('sha256')
-        .update(
-          JSON.stringify([
-            root,
-            config.includedProjects === undefined
-              ? null
-              : [...new Set(config.includedProjects)].sort(),
-            config.includeSharedSessions === true,
-          ]),
-        )
+        .update(JSON.stringify([projects, 'scanDepth', depth]))
         .digest('hex');
 }
 export function syncSourceScope(store: StoreApi, config: AppConfig) {
@@ -39,6 +47,7 @@ export function syncSourceScope(store: StoreApi, config: AppConfig) {
         config.remoteCollection,
         config.includedProjects,
         config.includeSharedSessions,
+        config.scanDepth ?? DEFAULT_SCAN_DEPTH,
       ]),
     )
     .digest('hex');
@@ -48,9 +57,12 @@ export function syncSourceScope(store: StoreApi, config: AppConfig) {
     store.registerWorkspace({
       id: workspace,
       label:
-        config.includedProjects === undefined
+        (config.includedProjects === undefined
           ? 'All projects'
-          : `${config.includedProjects.length} selected projects${config.includeSharedSessions ? ' + shared sessions' : ''}`,
+          : `${config.includedProjects.length} selected projects${config.includeSharedSessions ? ' + shared sessions' : ''}`) +
+        ((config.scanDepth ?? DEFAULT_SCAN_DEPTH) === DEFAULT_SCAN_DEPTH
+          ? ''
+          : ` · depth ${config.scanDepth}`),
       workRoot: config.workRoot,
       gitlabUrl: config.remoteCollection ? (config.gitlabUrl ?? null) : null,
       timezone: config.timezone,

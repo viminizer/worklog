@@ -4,9 +4,11 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { Schema } from 'effect';
 import { DateTime } from 'luxon';
+import { validateScanDepth } from '../shared/scan-depth.js';
 
 const ConfigSchema = Schema.Struct({
   workRoot: Schema.String,
+  scanDepth: Schema.optionalKey(Schema.Number),
   gitlabUrl: Schema.optionalKey(Schema.String),
   token: Schema.optionalKey(Schema.String),
   remoteCollection: Schema.optionalKey(Schema.Boolean),
@@ -43,6 +45,9 @@ export async function prepareDataDir() {
   await assertPrivateLocation(join(dataDir, 'worklog.db'));
 }
 export function validateConfig(input: unknown): AppConfig {
+  const scanDepth = validateScanDepth(
+    input && typeof input === 'object' ? (input as Record<string, unknown>).scanDepth : undefined,
+  );
   let config: AppConfig;
   try {
     config = Schema.decodeUnknownSync(ConfigSchema)(
@@ -91,6 +96,7 @@ export function validateConfig(input: unknown): AppConfig {
     throw new Error('Select a project or include shared workspace sessions.');
   return {
     ...config,
+    scanDepth,
     workRoot,
     token,
     gitlabUrl,

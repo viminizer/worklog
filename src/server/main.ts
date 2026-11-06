@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Effect, Layer, ManagedRuntime, Schema } from 'effect';
 import { DateTime } from 'luxon';
 import type { AppStatus } from '../shared/domain.js';
+import { DEFAULT_SCAN_DEPTH } from '../shared/scan-depth.js';
 import { AgentRunnerLive } from './agent.js';
 import { collectDay } from './collection.js';
 import {
@@ -90,6 +91,7 @@ async function status(): Promise<AppStatus> {
     const config = await loadConfig();
     return {
       configured: true,
+      scanDepth: config.scanDepth ?? DEFAULT_SCAN_DEPTH,
       remoteCollection: config.remoteCollection === true,
       workspaceId: dataScope(config),
       workspaces: store.workspaces(),
@@ -107,6 +109,7 @@ async function status(): Promise<AppStatus> {
   } catch (error) {
     return {
       configured: false,
+      scanDepth: DEFAULT_SCAN_DEPTH,
       remoteCollection: false,
       workspaceId: store.scope(),
       workspaces: store.workspaces(),
@@ -186,7 +189,8 @@ const server = createServer(async (request, response) => {
       return json(response, 200, {
         workspaceId: dataScope(config),
         root: config.workRoot,
-        groups: await discoverRepositoryGroups(config.workRoot),
+        scanDepth: config.scanDepth ?? DEFAULT_SCAN_DEPTH,
+        groups: await discoverRepositoryGroups(config.workRoot, config.scanDepth),
         selection: config.includedProjects ?? null,
         includeSharedSessions:
           config.includedProjects === undefined
@@ -203,7 +207,7 @@ const server = createServer(async (request, response) => {
         return json(response, 409, {
           error: 'Workspace settings changed. Rescan projects before rechecking.',
         });
-      const project = (await discoverRepositories(config.workRoot)).find(
+      const project = (await discoverRepositories(config.workRoot, config.scanDepth)).find(
         (project) => checkoutId(project.checkout) === input.checkoutId,
       );
       if (!project)
@@ -236,7 +240,7 @@ const server = createServer(async (request, response) => {
           return json(response, 409, {
             error: 'Project settings changed. Reload the saved choices before applying yours.',
           });
-        const groups = await discoverRepositoryGroups(config.workRoot);
+        const groups = await discoverRepositoryGroups(config.workRoot, config.scanDepth);
         const ids = new Set(groups.map((group) => group.id));
         if (input.includedProjects.some((id) => !ids.has(id)))
           return json(response, 409, {

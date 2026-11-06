@@ -95,6 +95,11 @@ and partial collections do not mark the date complete.
 ## Project selection
 
 Open **Projects** to inspect grouped checkouts and select the projects to collect.
+**Scan depth** in Settings limits repository discovery (default **3**, range 0–20).
+The work folder is depth 0; a repository three folders below it is included at
+depth 3. Increase the setting for deeper projects. The 25,000-directory safety
+limit still applies; lower the depth or narrow the folder if you hit it. Changing
+depth keeps earlier records in History. This setting does not limit AI session file discovery.
 Use **Needs attention** to find checkout-specific repair cards. Copy the suggested
 command, adjust it if needed, and run it yourself; **Recheck** only reads setup
 state. After fixing an issue, collect the affected date again to confirm coverage.

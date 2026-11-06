@@ -3,6 +3,7 @@ import { readdir, realpath } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import type { Project } from '../shared/domain.js';
+import { validateScanDepth } from '../shared/scan-depth.js';
 
 const exec = promisify(execFile);
 
@@ -26,14 +27,17 @@ export function projectFromRemote(remote: string, gitlabUrl: string): string | n
     return prefix ? (path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : null) : path;
   }
 }
-export async function discoverRepositories(root: string): Promise<Project[]> {
+export async function discoverRepositories(root: string, scanDepth?: number): Promise<Project[]> {
+  const maxDepth = validateScanDepth(scanDepth);
   root = await realpath(root);
   const repositories: Project[] = [];
   const skip = new Set(['node_modules', '.git', '.cache', 'dist', 'vendor']);
   let scanned = 0;
-  async function walk(directory: string): Promise<void> {
+  async function walk(directory: string, depth: number): Promise<void> {
     if (++scanned > 25000)
-      throw new Error('Work root scan exceeded 25,000 directories; choose a narrower root.');
+      throw new Error(
+        'Work root scan exceeded 25,000 directories; lower Scan depth in Settings or choose a narrower root.',
+      );
     const entries = await readdir(directory, { withFileTypes: true }).catch(() => {
       throw new Error(
         `Cannot read work folder ${directory}. Check that it exists and you have permission, then collect again.`,
@@ -44,19 +48,22 @@ export async function discoverRepositories(root: string): Promise<Project[]> {
         throw new Error('More than 1,000 checkouts; choose a narrower work folder.');
       repositories.push({ path: relative(root, directory) || '.', checkout: directory });
     }
+    if (depth >= maxDepth) return;
     for (const entry of entries)
-      if (entry.isDirectory() && !skip.has(entry.name)) await walk(join(directory, entry.name));
+      if (entry.isDirectory() && !skip.has(entry.name))
+        await walk(join(directory, entry.name), depth + 1);
   }
-  await walk(root);
+  await walk(root, 0);
   return repositories.sort((a, b) => a.path.localeCompare(b.path));
 }
 export async function discoverProjects(
   root: string,
   gitlabUrl: string,
   selected?: Project[],
+  scanDepth?: number,
 ): Promise<Project[]> {
   const projects = new Map<string, Project>();
-  for (const repository of selected ?? (await discoverRepositories(root))) {
+  for (const repository of selected ?? (await discoverRepositories(root, scanDepth))) {
     const { stdout } = await exec(
       'git',
       ['-C', repository.checkout, 'config', '--get-regexp', '^remote\\..*\\.url$'],

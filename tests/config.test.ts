@@ -106,3 +106,19 @@ it('preserves project choices on ordinary settings edits and clears them for a d
   await saveConfig({ workRoot: other, timezone: 'UTC' }, path);
   expect((await loadConfig(path)).includedProjects).toBeUndefined();
 });
+
+it('defaults legacy settings to depth three, saves depth zero and rejects invalid depths atomically', async () => {
+  const root = await fixture();
+  const path = join(root, 'settings.json');
+  await writeFile(path, JSON.stringify({ workRoot: root, timezone: 'UTC' }));
+  expect((await loadConfig(path)).scanDepth).toBe(3);
+  await saveConfig({ workRoot: root, timezone: 'UTC', scanDepth: 0 }, path);
+  expect((await loadConfig(path)).scanDepth).toBe(0);
+  const original = await readFile(path, 'utf8');
+  for (const scanDepth of [-1, 1.5, 21, NaN, Infinity, '3', null]) {
+    await expect(saveConfig({ workRoot: root, timezone: 'UTC', scanDepth }, path)).rejects.toThrow(
+      'Scan depth',
+    );
+    expect(await readFile(path, 'utf8')).toBe(original);
+  }
+});

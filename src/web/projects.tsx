@@ -222,7 +222,8 @@ export function Projects({
           {catalog && (
             <>
               <p className="muted">
-                {catalog.root} · {selected.length} of {catalog.groups.length} projects selected
+                {catalog.root} · Scan depth {catalog.scanDepth} · {selected.length} of{' '}
+                {catalog.groups.length} projects selected
               </p>
               {missingSelection > 0 && (
                 <p className="notice">

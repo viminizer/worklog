@@ -287,3 +287,25 @@ it('deduplicates previously collected worktree commits without deleting old cita
     store.close();
   }
 });
+
+it('bounds discovery at the requested depth and includes repositories at the boundary', async () => {
+  const root = await fixture();
+  const boundary = join(root, 'one', 'two', 'three');
+  const deep = join(boundary, 'four');
+  await mkdir(deep, { recursive: true });
+  git(root, 'init', '-q');
+  git(boundary, 'init', '-q');
+  git(deep, 'init', '-q');
+  expect((await discoverRepositories(root)).map((item) => item.path)).toEqual([
+    '.',
+    'one/two/three',
+  ]);
+  expect((await discoverRepositories(root, 0)).map((item) => item.path)).toEqual(['.']);
+  expect((await discoverRepositories(root, 4)).map((item) => item.path)).toContain(
+    'one/two/three/four',
+  );
+  expect((await discoverRepositoryGroups(root, 0)).flatMap((group) => group.members)).toEqual([
+    root,
+  ]);
+  await expect(discoverRepositories(root, -1)).rejects.toThrow('Scan depth');
+});

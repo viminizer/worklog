@@ -16,7 +16,7 @@ export const collectDay = (id: string, day: string, config: AppConfig) =>
     const store = yield* Store;
     const agent = yield* AgentRunner;
     const allRepositories = yield* Effect.tryPromise({
-      try: () => discoverRepositoryGroups(config.workRoot),
+      try: () => discoverRepositoryGroups(config.workRoot, config.scanDepth),
       catch: (error) => new SourceFailure({ message: message(error) }),
     });
     const included = new Set(config.includedProjects);

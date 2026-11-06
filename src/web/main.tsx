@@ -274,7 +274,7 @@ function App() {
         </nav>
         <div hidden={tab !== 'projects'}>
           <Projects
-            key={`${status?.workRoot}:${status?.remoteCollection ? status.gitlabUrl : 'local'}`}
+            key={`${status?.workRoot}:${status?.remoteCollection ? status.gitlabUrl : 'local'}:${status?.scanDepth}`}
             active={tab === 'projects'}
             repairFocus={repairFocus}
             configured={status?.configured ?? false}

@@ -72,6 +72,7 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
     });
     const status = JSON.parse(reply);
     expect(status.configured).toBe(true);
+    expect(status.scanDepth).toBe(3);
     expect(reply).not.toContain('fixture-private-token');
     const saved = JSON.parse(await readFile(join(directory, 'config.json'), 'utf8'));
     expect(saved.workRoot).toContain('업무');
@@ -229,6 +230,28 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
       }),
     });
     expect(badCheck.status).toBe(404);
+    const deep = join(work, 'a', 'b', 'c', 'deep');
+    await mkdir(deep, { recursive: true });
+    execFileSync('git', ['init', '-q', deep]);
+    expect((await (await fetch(url + '/api/projects')).json()).groups).toHaveLength(1);
+    const depthSave = await fetch(url + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workRoot: work, timezone: 'UTC', automatic: false, scanDepth: 4 }),
+    });
+    expect(depthSave.status).toBe(200);
+    expect((await depthSave.json()).scanDepth).toBe(4);
+    const deeperCatalog = await (await fetch(url + '/api/projects')).json();
+    expect(deeperCatalog.scanDepth).toBe(4);
+    expect(deeperCatalog.groups).toHaveLength(2);
+    expect((await recheck()).status).toBe(409);
+    const invalidDepth = await fetch(url + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workRoot: work, timezone: 'UTC', scanDepth: -1 }),
+    });
+    expect(invalidDepth.status).toBe(400);
+    expect((await (await fetch(url + '/api/status')).json()).scanDepth).toBe(4);
   } finally {
     child.kill('SIGTERM');
     await once(child, 'exit');

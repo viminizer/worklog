@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { useState } from 'react';
 import type { AppStatus } from '../shared/domain.js';
+import { DEFAULT_SCAN_DEPTH, MAX_SCAN_DEPTH } from '../shared/scan-depth.js';
 import { api } from './api.js';
 
 export function Settings({
@@ -13,6 +14,7 @@ export function Settings({
   onClose: () => void;
 }) {
   const [workRoot, setWorkRoot] = useState(status.workRoot ?? '');
+  const [scanDepth, setScanDepth] = useState(String(status.scanDepth ?? DEFAULT_SCAN_DEPTH));
   const [gitlabUrl, setGitlabUrl] = useState(status.gitlabUrl ?? '');
   const [token, setToken] = useState('');
   const [remoteCollection, setRemoteCollection] = useState(status.remoteCollection);
@@ -34,6 +36,7 @@ export function Settings({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workRoot,
+          scanDepth: Number(scanDepth),
           gitlabUrl,
           token,
           remoteCollection,
@@ -87,6 +90,23 @@ export function Settings({
               placeholder="~/work"
               autoComplete="off"
             />
+          </label>
+          <label>
+            Scan depth
+            <input
+              type="number"
+              required
+              min={0}
+              max={MAX_SCAN_DEPTH}
+              step={1}
+              value={scanDepth}
+              onChange={(event) => setScanDepth(event.target.value)}
+              aria-describedby="scan-depth-help"
+            />
+            <span className="field-help" id="scan-depth-help">
+              Repository discovery only. Work folder = 0; default 3 includes three levels below it.
+              Increase to find deeper projects.
+            </span>
           </label>
           <label>
             Reporting timezone
