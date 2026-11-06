@@ -1,27 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AppStatus, ProjectCatalog } from '../shared/domain.js';
+import type { AppStatus, ProjectCatalog, RepositoryCheckout } from '../shared/domain.js';
 import { api } from './api.js';
+import { RepairCard } from './repair-card.js';
 
 export function Projects({
   active,
   configured,
   onSaved,
+  repairFocus = 0,
 }: {
   active: boolean;
   configured: boolean;
   onSaved: (status: AppStatus) => void;
+  repairFocus?: number;
 }) {
   const [catalog, setCatalog] = useState<ProjectCatalog>();
   const [selected, setSelected] = useState<string[]>([]);
   const [shared, setShared] = useState(true);
   const [search, setSearch] = useState('');
+  const [issuesOnly, setIssuesOnly] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (repairFocus > 0) {
+      setIssuesOnly(true);
+      heading.current?.focus();
+    }
+  }, [repairFocus]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const mounted = useRef(true);
   const requestId = useRef(0);
   const controller = useRef<AbortController | undefined>(undefined);
-  const baseline = catalog?.selection ?? catalog?.groups.map((group) => group.id) ?? [];
+  const savedIds = catalog?.selection ?? catalog?.groups.map((group) => group.id) ?? [];
+  const baseline = savedIds.filter((id) => catalog?.groups.some((group) => group.id === id));
+  const missingSelection = savedIds.length - baseline.length;
   const dirty = Boolean(
     catalog &&
       (JSON.stringify([...selected].sort()) !== JSON.stringify([...baseline].sort()) ||
@@ -55,8 +68,13 @@ export function Projects({
       const value = await api<ProjectCatalog>('/api/projects', { signal: abort.signal });
       if (mounted.current && id === requestId.current) {
         setCatalog(value);
-        setSelected(value.selection ?? value.groups.map((group) => group.id));
+        setSelected(
+          (value.selection ?? value.groups.map((group) => group.id)).filter((id) =>
+            value.groups.some((group) => group.id === id),
+          ),
+        );
         setShared(value.includeSharedSessions);
+        return value;
       }
     } catch (error) {
       if (mounted.current && id === requestId.current)
@@ -102,18 +120,62 @@ export function Projects({
       if (mounted.current) setBusy('');
     }
   }
+  async function recheck(checkout: RepositoryCheckout) {
+    if (!catalog || dirty) return;
+    setBusy(`recheck:${checkout.id}`);
+    setError('');
+    setNotice('');
+    try {
+      await api<{ checkout: RepositoryCheckout }>('/api/projects/recheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: catalog.workspaceId, checkoutId: checkout.id }),
+      });
+      if (!mounted.current) return;
+      const refreshed = await load();
+      if (!mounted.current) return;
+      if (!refreshed) {
+        setNotice('Checkout check completed. Rescan projects to refresh grouping.');
+        return;
+      }
+      const latest = refreshed.groups
+        .flatMap((group) => group.checkouts)
+        .find((item) => item.id === checkout.id);
+      if (!latest) {
+        setNotice(
+          'The checkout is no longer detected. Review the refreshed grouping and project choices.',
+        );
+        return;
+      }
+      if (mounted.current)
+        setNotice(
+          latest.repair
+            ? 'The checkout still needs attention. Review its updated repair card.'
+            : 'Basic checks passed. Grouping has been refreshed; review your choices, then collect the affected date again.',
+        );
+    } catch (error) {
+      if (mounted.current)
+        setError(error instanceof Error ? error.message : 'Cannot recheck checkout.');
+    } finally {
+      if (mounted.current) setBusy('');
+    }
+  }
   const visible =
-    catalog?.groups.filter((group) =>
-      `${group.path} ${group.checkouts.map((item) => item.path).join(' ')}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
+    catalog?.groups.filter(
+      (group) =>
+        (!issuesOnly || group.checkouts.some((item) => item.repair)) &&
+        `${group.path} ${group.checkouts.map((item) => item.path).join(' ')}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
     ) ?? [];
   return (
     <section className="projects-pane" aria-label="Projects">
       <div className="section-heading">
         <div>
           <p className="eyebrow">YOUR COLLECTION SCOPE</p>
-          <h2>Choose your projects</h2>
+          <h2 ref={heading} tabIndex={-1}>
+            Choose your projects
+          </h2>
         </div>
         <span className="muted">Worktrees stay together.</span>
       </div>
@@ -162,6 +224,26 @@ export function Projects({
               <p className="muted">
                 {catalog.root} · {selected.length} of {catalog.groups.length} projects selected
               </p>
+              {missingSelection > 0 && (
+                <p className="notice">
+                  {missingSelection} previously selected project
+                  {missingSelection === 1 ? ' is' : 's are'} no longer detected. Review the
+                  available projects and save updated choices.
+                </p>
+              )}
+              <button
+                type="button"
+                className="quiet"
+                aria-pressed={issuesOnly}
+                onClick={() => setIssuesOnly((value) => !value)}
+              >
+                {issuesOnly
+                  ? 'Show all projects'
+                  : `Needs attention (${catalog.groups.flatMap((group) => group.checkouts).filter((item) => item.repair).length})`}
+              </button>
+              {dirty && (
+                <p className="muted">Save or reset your pending choices before rechecking setup.</p>
+              )}
               <div className="project-bulk">
                 <button
                   type="button"
@@ -204,16 +286,19 @@ export function Projects({
                       {group.members.length} checkout{group.members.length === 1 ? '' : 's'}
                       {group.checkouts.some((item) => item.error) ? ' · Setup needs attention' : ''}
                     </p>
-                    <details>
+                    <details open={group.checkouts.some((item) => item.repair)}>
                       <summary>Inspect checkouts</summary>
-                      <ul>
+                      <div className="checkout-repairs">
                         {group.checkouts.map((item) => (
-                          <li key={item.checkout}>
-                            <span>{item.path}</span>
-                            {item.error && <p className="job-error">{item.error}</p>}
-                          </li>
+                          <RepairCard
+                            key={`${item.id}:${item.checkedAt}`}
+                            checkout={item}
+                            disabled={Boolean(busy) || dirty}
+                            checking={busy === `recheck:${item.id}`}
+                            onRecheck={() => void recheck(item)}
+                          />
                         ))}
-                      </ul>
+                      </div>
                     </details>
                   </article>
                 ))}
@@ -243,7 +328,7 @@ export function Projects({
                   disabled={
                     Boolean(busy) ||
                     (!selected.length && !shared) ||
-                    (!dirty && catalog.selection !== null)
+                    (!dirty && catalog.selection !== null && !missingSelection)
                   }
                 >
                   {busy === 'save' ? 'Saving…' : 'Save project choices'}

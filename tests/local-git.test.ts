@@ -77,7 +77,7 @@ it('reports missing identity with a manual repair action and rejects out-of-root
   try {
     await expect(
       repositoryActivity(root, { path: 'app', checkout: path }, '2026-11-05', '2026-11-06'),
-    ).rejects.toThrow('config user.email');
+    ).rejects.toThrow('config --local user.email');
   } finally {
     if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
     else process.env.GIT_CONFIG_GLOBAL = previous;

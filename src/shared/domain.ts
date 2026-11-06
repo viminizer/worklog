@@ -73,7 +73,17 @@ export interface Project {
   members?: string[];
   authorEmails?: string[];
 }
+export interface RepairIssue {
+  code: string;
+  title: string;
+  message: string;
+  steps: string[];
+  command?: string;
+}
 export interface RepositoryCheckout {
+  id: string;
+  checkedAt: string;
+  repair?: RepairIssue;
   path: string;
   checkout: string;
   commonDir?: string;

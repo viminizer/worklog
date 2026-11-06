@@ -40,6 +40,7 @@ function EvidenceDialog({ evidence, onClose }: { evidence: Evidence; onClose: ()
 }
 function App() {
   const [historyScope, setHistoryScope] = useState('');
+  const [repairFocus, setRepairFocus] = useState(0);
   const [tab, setTab] = useState<'log' | 'reports' | 'projects'>('log');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence>();
@@ -271,6 +272,7 @@ function App() {
           <Projects
             key={`${status?.workRoot}:${status?.remoteCollection ? status.gitlabUrl : 'local'}`}
             active={tab === 'projects'}
+            repairFocus={repairFocus}
             configured={status?.configured ?? false}
             onSaved={(value) => {
               statusEpoch.current++;
@@ -392,9 +394,37 @@ function App() {
                       </time>
                       {job.fallback && <p>Switched to Claude Code: {job.fallback}</p>}
                       {job.error && (
-                        <div role="alert" className="job-error">
-                          <p>{job.error}</p>
-                          <p>Fix the issue on this computer, then collect this date again.</p>
+                        <div
+                          className="job-problem"
+                          role={
+                            view.jobs.find((item) => item.kind === job.kind)?.id === job.id
+                              ? 'alert'
+                              : undefined
+                          }
+                        >
+                          <p className="job-error">
+                            {view.jobs.find((item) => item.kind === job.kind)?.id === job.id
+                              ? job.error.split(' · ')[0]
+                              : 'An earlier task reported an error.'}
+                          </p>
+                          <details>
+                            <summary>Original task error</summary>
+                            <p className="job-error">{job.error}</p>
+                            <p>Fix the setup, then collect this date again.</p>
+                          </details>
+                          {view.jobs.find((item) => item.kind === job.kind)?.id === job.id &&
+                            /Git|checkout|repository|worktree/i.test(job.error) && (
+                              <button
+                                type="button"
+                                className="quiet"
+                                onClick={() => {
+                                  setRepairFocus((value) => value + 1);
+                                  setTab('projects');
+                                }}
+                              >
+                                Review repository setup
+                              </button>
+                            )}
                         </div>
                       )}
                     </div>

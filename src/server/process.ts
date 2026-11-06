@@ -70,3 +70,8 @@ export const execute: Execute = (command, signal) =>
       else resolve(stdout);
     });
   });
+
+// For displayed manual repair commands only; subprocess execution always uses argument arrays.
+export function quoteShell(value: string): string {
+  return "'" + value.replaceAll("'", "'\\''") + "'";
+}

@@ -805,3 +805,61 @@ dialog pre {
 .shared-session-choice {
   margin-top: 1.5rem;
 }
+
+.checkout-repairs {
+  max-height: 30rem;
+  overflow-y: auto;
+  margin-top: 0.75rem;
+  padding: 0.25rem;
+  overscroll-behavior: contain;
+}
+.repair-card {
+  border-top: 1px solid var(--line);
+  padding: 1rem 0;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.repair-card h3 {
+  font-size: 0.95rem;
+  margin: 0.5rem 0;
+}
+.repair-path {
+  font-weight: 600;
+  margin: 0;
+}
+.repair-card ol {
+  padding-left: 1.25rem;
+}
+.repair-card li {
+  margin: 0.35rem 0;
+}
+.repair-command {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+  background: rgba(49, 90, 67, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.repair-card.needs-repair h3 {
+  color: var(--error);
+}
+.repair-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.repair-card button {
+  font-size: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+.job-problem details {
+  font-size: 0.8rem;
+  margin: 0.75rem 0;
+}
+.job-problem button {
+  font-size: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}

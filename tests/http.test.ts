@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
@@ -205,6 +205,30 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
       }),
     });
     expect(staleSelection.status).toBe(409);
+    const repair = join(work, 'repair');
+    await mkdir(repair);
+    execFileSync('git', ['init', '-q', repair]);
+    execFileSync('git', ['-C', repair, 'config', 'user.email', '']);
+    const repairs = await (await fetch(url + '/api/projects')).json();
+    const checkout = repairs.groups[0].checkouts[0];
+    const recheck = () =>
+      fetch(url + '/api/projects/recheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: selectedStatus.workspaceId, checkoutId: checkout.id }),
+      });
+    expect((await (await recheck()).json()).checkout.repair.code).toBe('author-missing');
+    execFileSync('git', ['-C', repair, 'config', 'user.email', 'fixture@example.test']);
+    expect((await (await recheck()).json()).checkout.repair).toBeUndefined();
+    const badCheck = await fetch(url + '/api/projects/recheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspaceId: selectedStatus.workspaceId,
+        checkoutId: '../../outside',
+      }),
+    });
+    expect(badCheck.status).toBe(404);
   } finally {
     child.kill('SIGTERM');
     await once(child, 'exit');

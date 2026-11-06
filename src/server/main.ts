@@ -16,6 +16,8 @@ import {
   prepareDataDir,
   saveConfig,
 } from './config.js';
+import { checkoutId, inspectCheckout } from './diagnostics.js';
+import { discoverRepositories } from './discovery.js';
 import { message } from './errors.js';
 import { GitLab } from './gitlab.js';
 import { acquireInstance } from './instance.js';
@@ -191,6 +193,30 @@ const server = createServer(async (request, response) => {
             ? config.includeSharedSessions !== false
             : config.includeSharedSessions === true,
       });
+    }
+    if (request.method === 'POST' && url.pathname === '/api/projects/recheck') {
+      const input = Schema.decodeUnknownSync(
+        Schema.Struct({ workspaceId: Schema.String, checkoutId: Schema.String }),
+      )(await body(request));
+      const config = await loadConfig();
+      if (input.workspaceId !== dataScope(config))
+        return json(response, 409, {
+          error: 'Workspace settings changed. Rescan projects before rechecking.',
+        });
+      const project = (await discoverRepositories(config.workRoot)).find(
+        (project) => checkoutId(project.checkout) === input.checkoutId,
+      );
+      if (!project)
+        return json(response, 404, {
+          error: 'Checkout is no longer under the saved work folder. Rescan projects.',
+        });
+      const checkout = await inspectCheckout(config.workRoot, project);
+      const latest = await loadConfig();
+      if (dataScope(latest) !== input.workspaceId)
+        return json(response, 409, {
+          error: 'Workspace settings changed during the check. Rescan projects.',
+        });
+      return json(response, 200, { checkout });
     }
     if (request.method === 'POST' && url.pathname === '/api/projects/selection') {
       if (!queue.pause())

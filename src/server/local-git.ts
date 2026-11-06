@@ -5,6 +5,7 @@ import { relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { Evidence, Project } from '../shared/domain.js';
 import { SourceFailure } from './errors.js';
+import { quoteShell } from './process.js';
 
 const exec = promisify(execFile);
 export async function readGit(checkout: string, args: string[]) {
@@ -49,6 +50,21 @@ export async function readGit(checkout: string, args: string[]) {
     throw error;
   }
 }
+export async function authorRepair(checkout: string) {
+  let worktree = false;
+  try {
+    worktree =
+      (
+        await readGit(checkout, ['config', '--bool', '--get', 'extensions.worktreeConfig'])
+      ).trim() === 'true';
+  } catch (error) {
+    if ((error as { code?: number }).code !== 1) throw error;
+  }
+  return {
+    shared: !worktree,
+    command: `git -C ${quoteShell(checkout)} config ${worktree ? '--worktree' : '--local'} user.email 'you@company.com'`,
+  };
+}
 async function scoped(root: string, repository: Project) {
   const path = await realpath(repository.checkout);
   const rel = relative(await realpath(root), path);
@@ -65,10 +81,9 @@ export async function repositoryActivity(
   end: string,
 ): Promise<Evidence[]> {
   const checkout = await scoped(root, repository);
-  const quotedCheckout = "'" + checkout.replaceAll("'", "'\\''") + "'";
-  const missingAuthor = () =>
+  const missingAuthor = async () =>
     new SourceFailure({
-      message: `${repository.path}: Git author email is missing. Run git -C ${quotedCheckout} config user.email "you@company.com", then collect again.`,
+      message: `${repository.path}: Git author email is missing. Run ${(await authorRepair(checkout)).command}, then collect again. Without worktree-specific configuration this updates the shared repository identity.`,
     });
   let emails = repository.authorEmails?.filter(Boolean) ?? [];
   if (!emails.length) {
@@ -77,12 +92,12 @@ export async function repositoryActivity(
       email = (await readGit(checkout, ['config', '--get', 'user.email'])).trim();
     } catch (error) {
       if (error instanceof SourceFailure) throw error;
-      if ((error as { code?: number }).code === 1) throw missingAuthor();
+      if ((error as { code?: number }).code === 1) throw await missingAuthor();
       throw new SourceFailure({
         message: `${repository.path}: Cannot read Git author configuration. Check checkout ownership, permissions, and Git configuration, then collect again.`,
       });
     }
-    if (!email) throw missingAuthor();
+    if (!email) throw await missingAuthor();
     emails = [email];
   }
   const identities = new Set(emails.map((email) => email.toLowerCase()));

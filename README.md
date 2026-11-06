@@ -90,6 +90,9 @@ and partial collections do not mark the date complete.
 ## Project selection
 
 Open **Projects** to inspect grouped checkouts and select the projects to collect.
+Use **Needs attention** to find checkout-specific repair cards. Copy the suggested
+command, adjust it if needed, and run it yourself; **Recheck** only reads setup
+state. After fixing an issue, collect the affected date again to confirm coverage.
 Saving a selection makes newly discovered projects opt-in. **Rescan projects**
 refreshes the local catalog; it never fetches or changes repositories.
 
