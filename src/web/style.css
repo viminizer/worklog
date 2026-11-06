@@ -734,3 +734,16 @@ dialog pre {
   padding: 0.25rem;
   overscroll-behavior: contain;
 }
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.app-version {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  white-space: nowrap;
+}

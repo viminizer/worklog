@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import packageInfo from '../../package.json' with { type: 'json' };
 import type { AppStatus, DailyView, Evidence } from '../shared/domain.js';
 import './style.css';
 import { api } from './api.js';
@@ -138,9 +139,12 @@ function App() {
   return (
     <div className={`app${status?.configured ? ' configured' : ''}`}>
       <header>
-        <a className="wordmark" href="/">
-          w<span>▧</span>rklog<span className="period">.</span>
-        </a>
+        <div className="brand">
+          <a className="wordmark" href="/">
+            w<span>▧</span>rklog<span className="period">.</span>
+          </a>
+          <span className="app-version">v{packageInfo.version}</span>
+        </div>
         <div className="header-actions">
           <button
             type="button"
