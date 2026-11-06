@@ -239,7 +239,8 @@ it('keeps cited evidence available across daily pages', () => {
     expect(page.evidence).toHaveLength(100);
     expect(page.evidence.some((record) => record.id === 'event:0')).toBe(false);
     expect(page.supportingEvidence[0]?.id).toBe('event:0');
-    expect(page.hasMore).toBe(true);
+    expect(page.hasMore).toBe(false);
+    expect(store.evidencePage('2026-11-05').hasMore).toBe(true);
     expect(store.daily('2026-11-05', 1000).evidence).toHaveLength(1);
   } finally {
     store.close();
@@ -396,6 +397,52 @@ it('retains inspected commit context across repeated reads and collections of an
       retainEvidenceContext({ ...push, push: { ...push.push, to: 'c'.repeat(40) } }, inspected)
         .excerpt,
     ).toBeUndefined();
+  } finally {
+    store.close();
+  }
+});
+
+it('browses evidence independently with bounded pages, literal search, kind and workspace filters', () => {
+  const store = openStore(':memory:');
+  try {
+    const records = Array.from({ length: 24 }, (_, index) => ({
+      ...evidence,
+      id: `browse:${index}`,
+      title: index === 0 ? 'Fix 100%_case' : 'Work item',
+      ...(index < 12
+        ? {
+            localGit: {
+              checkout: '/fixture',
+              commit: 'a'.repeat(40),
+              authorEmail: 'fixture@example.test',
+            },
+          }
+        : {
+            session: {
+              provider: 'codex' as const,
+              id: 'fixture',
+              file: '/fixture',
+              entry: String(index),
+              workRoot: '/fixture',
+            },
+          }),
+    }));
+    store.enqueue('browse', '2026-11-05');
+    store.commit('browse', '2026-11-05', {
+      result: { accomplishments: [] },
+      audit: { covered: [], evidence: records },
+      agent: 'codex',
+      fallback: null,
+    });
+    const first = store.evidencePage('2026-11-05');
+    const second = store.evidencePage('2026-11-05', store.scope(), 10);
+    expect(first.total).toBe(24);
+    expect(first.items).toHaveLength(10);
+    expect(new Set([...first.items, ...second.items].map((item) => item.id)).size).toBe(20);
+    expect(store.evidencePage('2026-11-05', store.scope(), 0, '%_').total).toBe(1);
+    expect(store.evidencePage('2026-11-05', store.scope(), 0, '', 'git').total).toBe(12);
+    expect(store.evidencePage('2026-11-05', 'other').total).toBe(0);
+    expect(store.daily('2026-11-05').hasMore).toBe(false);
   } finally {
     store.close();
   }

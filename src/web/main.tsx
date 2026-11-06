@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import type { AppStatus, DailyView, Evidence } from '../shared/domain.js';
 import './style.css';
 import { api } from './api.js';
-import { EvidenceReference } from './evidence-reference.js';
+import { EvidencePanel } from './evidence-panel.js';
+import { EvidenceLinks } from './evidence-reference.js';
 import { Reports } from './reports.js';
 import { Settings } from './settings.js';
 
@@ -290,20 +291,13 @@ function App() {
                 <article className="entry" key={item.id}>
                   <span className={`state ${item.state}`}>{item.state}</span>
                   <h3>{item.title}</h3>
-                  <div className="sources">
-                    {item.evidenceIds.map((id) => {
-                      const evidence = view.supportingEvidence.find((record) => record.id === id);
-                      return (
-                        evidence && (
-                          <EvidenceReference
-                            key={id}
-                            item={evidence}
-                            onOpen={setSelectedEvidence}
-                          />
-                        )
-                      );
+                  <EvidenceLinks
+                    items={item.evidenceIds.flatMap((id) => {
+                      const source = view.supportingEvidence.find((record) => record.id === id);
+                      return source ? [source] : [];
                     })}
-                  </div>
+                    onOpen={setSelectedEvidence}
+                  />
                 </article>
               ))}
               {(offset > 0 || view?.hasMore) && (
@@ -380,24 +374,12 @@ function App() {
                   <p className="muted">No collections for this day.</p>
                 )}
               </section>
-              <section className="side-section">
-                <p className="eyebrow">SOURCE EVIDENCE</p>
-                {view?.evidence.length ? (
-                  view.evidence.map((item) => (
-                    <EvidenceReference
-                      key={item.id}
-                      item={item}
-                      onOpen={setSelectedEvidence}
-                      full
-                    />
-                  ))
-                ) : (
-                  <p className="muted">
-                    Original activity will appear here, with local commit details and AI session
-                    excerpts.
-                  </p>
-                )}
-              </section>
+              <EvidencePanel
+                key={`${scope}:${day}`}
+                day={day}
+                scope={scope}
+                onOpen={setSelectedEvidence}
+              />
               <div className="footnote">
                 Stored on this computer.
                 <br />

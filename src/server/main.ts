@@ -272,6 +272,27 @@ const server = createServer(async (request, response) => {
         ? json(response, 200, item)
         : json(response, 404, { error: 'Evidence not found.' });
     }
+    if (request.method === 'GET' && url.pathname === '/api/evidence-list') {
+      const current = await status();
+      const day =
+        url.searchParams.get('day') ??
+        DateTime.now().setZone(current.timezone).toFormat('yyyy-MM-dd');
+      dayWindow(day, current.timezone);
+      const scope = url.searchParams.get('scope') ?? current.workspaceId;
+      if (!store.hasWorkspace(scope)) return json(response, 404, { error: 'Workspace not found.' });
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      const query = url.searchParams.get('q') ?? '';
+      const kind = url.searchParams.get('kind') ?? 'all';
+      if (
+        !Number.isInteger(offset) ||
+        offset < 0 ||
+        offset > 1000000 ||
+        query.length > 200 ||
+        !['all', 'git', 'codex', 'claude', 'gitlab'].includes(kind)
+      )
+        throw new Error('Invalid evidence filters or page.');
+      return json(response, 200, store.evidencePage(day, scope, offset, query, kind));
+    }
     if (request.method === 'GET' && url.pathname === '/api/day') {
       const current = await status();
       const day =

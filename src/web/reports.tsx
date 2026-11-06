@@ -2,7 +2,7 @@ import { DateTime } from 'luxon';
 import { useEffect, useRef, useState } from 'react';
 import type { AppStatus, Evidence, ReportResponse, ReportView } from '../shared/domain.js';
 import { api } from './api.js';
-import { EvidenceReference } from './evidence-reference.js';
+import { EvidenceLinks } from './evidence-reference.js';
 import { type ReportEditor as Editor, isOlderReport, mergeSavedReport } from './report-state.js';
 
 export function Reports({
@@ -420,11 +420,7 @@ export function Reports({
           </details>
           <section className="report-sources">
             <p className="eyebrow">SUPPORTING RECORDS</p>
-            <div className="sources">
-              {data?.evidence.map((item) => (
-                <EvidenceReference key={item.id} item={item} onOpen={onEvidence} />
-              ))}
-            </div>
+            <EvidenceLinks items={data?.evidence ?? []} onOpen={onEvidence} />
           </section>
         </>
       )}

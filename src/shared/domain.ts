@@ -109,6 +109,12 @@ export interface Job {
   nextRunAt: string | null;
   payload: string;
 }
+export interface EvidencePage {
+  items: Evidence[];
+  total: number;
+  offset: number;
+  hasMore: boolean;
+}
 export interface DailyView {
   evidence: Evidence[];
   supportingEvidence: Evidence[];

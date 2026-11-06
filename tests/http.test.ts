@@ -117,6 +117,14 @@ it('serves protected local APIs, saves split UTF-8 settings, and keeps credentia
       fallback: null,
     });
     fixtureDb.close();
+    const evidencePage = await (
+      await fetch(url + '/api/evidence-list?day=2026-11-01&q=Existing')
+    ).json();
+    expect(evidencePage.total).toBe(1);
+    expect(evidencePage.items[0].id).toBe('fixture-preserved');
+    expect((await fetch(url + '/api/evidence-list?day=2026-11-01&kind=bad')).status).toBe(400);
+    expect((await fetch(url + '/api/evidence-list?day=2026-11-01&scope=missing')).status).toBe(404);
+
     const update = await fetch(url + '/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

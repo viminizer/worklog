@@ -272,6 +272,42 @@ export function openStore(path: string) {
         | { collectedAt: string }
         | undefined;
     },
+    evidencePage(day: string, scope = reports.scope(), offset = 0, query = '', kind = 'all') {
+      const conditions = ['day=?', 'scope=?'];
+      const values: string[] = [day, scope];
+      if (query) {
+        conditions.push(
+          "(json_extract(data,'$.title') LIKE ? ESCAPE '\\' OR json_extract(data,'$.project') LIKE ? ESCAPE '\\')",
+        );
+        const search = '%' + query.replace(/[\\%_]/g, '\\$&') + '%';
+        values.push(search, search);
+      }
+      if (kind === 'git') conditions.push("json_type(data,'$.localGit')='object'");
+      else if (kind === 'codex' || kind === 'claude') {
+        conditions.push("json_extract(data,'$.session.provider')=?");
+        values.push(kind);
+      } else if (kind === 'gitlab')
+        conditions.push(
+          "json_type(data,'$.localGit') IS NULL AND json_type(data,'$.session') IS NULL",
+        );
+      const where = conditions.join(' AND ');
+      const total = (
+        db.prepare(`SELECT COUNT(*) AS count FROM activity WHERE ${where}`).get(...values) as {
+          count: number;
+        }
+      ).count;
+      const rows = db
+        .prepare(
+          `SELECT data FROM activity WHERE ${where} ORDER BY json_extract(data,'$.time') DESC,id LIMIT 10 OFFSET ?`,
+        )
+        .all(...values, offset) as { data: string }[];
+      return {
+        items: rows.map((row) => JSON.parse(row.data) as Evidence),
+        total,
+        offset,
+        hasMore: offset + rows.length < total,
+      };
+    },
     daily(day: string, offset = 0, scope = reports.scope()): DailyView {
       const evidence = (
         db
@@ -290,7 +326,7 @@ export function openStore(path: string) {
       const jobs = db
         .prepare('SELECT * FROM jobs WHERE day=? ORDER BY createdAt DESC LIMIT 20')
         .all(day) as Job[];
-      const hasMore = evidence.length > 100 || accomplishments.length > 100;
+      const hasMore = accomplishments.length > 100;
       const page = accomplishments.slice(0, 100);
       const ids = new Set(page.flatMap((item) => item.evidenceIds));
       const find = db.prepare('SELECT data FROM activity WHERE id=? AND scope=?');
